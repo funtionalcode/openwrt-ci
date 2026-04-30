@@ -41,6 +41,7 @@ on:
 env:
   TZ: Asia/Shanghai
   MSM_REPO: https://github.com/hkfuertes/msm8916-openwrt
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ==========================================
@@ -106,7 +107,7 @@ jobs:
             python3-setuptools rsync swig unzip zlib1g-dev quilt \
             patch curl wget xsltproc nano time python3 python3-pip \
             python3-pyelftools libelf-dev android-sdk-libsparse-utils \
-            mkbootimg
+            mkbootimg gcc-arm-none-eabi
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
 
@@ -174,6 +175,16 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+          # 移除依赖缺失和循环依赖的包，消除 Makefile 警告
+          for pkg in luci-app-mjpg-streamer onionshare-cli; do
+            [ -d "package/feeds/packages/$pkg" ] && rm -rf "package/feeds/packages/$pkg"
+            [ -d "package/feeds/luci/$pkg" ] && rm -rf "package/feeds/luci/$pkg"
+          done
+
+          # frps 与 luci-app-frps 存在循环依赖，我们只需要 frpc
+          rm -rf package/feeds/luci/luci-app-frps 2>/dev/null || true
+          rm -rf package/openwrt-frp/frps 2>/dev/null || true
+
       # ========================================
       # 5. 配置
       # ========================================
@@ -187,6 +198,21 @@ jobs:
           # 展开为完整配置
           make defconfig
 
+          # 检查 seed 中的包是否被 defconfig 降级（说明依赖缺失）
+          MISSING=""
+          while IFS= read -r line; do
+            pkg=$(echo "$line" | sed 's/CONFIG_PACKAGE_\(.*\)=y/\1/')
+            if grep -q "^# CONFIG_PACKAGE_${pkg} is not set" .config 2>/dev/null; then
+              MISSING="$MISSING $pkg"
+            fi
+          done < <(grep '^CONFIG_PACKAGE.*=y' "$GITHUB_WORKSPACE/config/ufi103.seed")
+          if [ -n "$MISSING" ]; then
+            echo "⚠️ 以下 seed 包被 defconfig 降级（可能缺少依赖）："
+            echo "$MISSING"
+          else
+            echo "✅ 所有 seed 包均正常选中"
+          fi
+
           # 显示最终配置摘要
           echo "========== 配置摘要 =========="
           grep "^CONFIG_PACKAGE" .config | grep "=y" | head -60
@@ -194,18 +220,15 @@ jobs:
           grep "^CONFIG_PACKAGE" .config | grep "=y" | wc -l
 
       # ========================================
-      # 6. 编译缓存
+      # 6. 恢复 ccache 缓存
       # ========================================
-      - name: 编译缓存
-        uses: pat-s/always-upload-cache@v3
+      - name: 恢复 ccache 缓存
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            openwrt/staging_dir
-            openwrt/build_dir
-            openwrt/ccache
-          key: openwrt-ufi103-${{ needs.resolve-version.outputs.openwrt_version }}-${{ hashFiles('config/ufi103.seed') }}
+          path: openwrt/.ccache
+          key: openwrt-ccache-${{ needs.resolve-version.outputs.openwrt_version }}
           restore-keys: |
-            openwrt-ufi103-
+            openwrt-ccache-
 
       # ========================================
       # 7. 下载源码包
@@ -228,6 +251,13 @@ jobs:
             make -j$(nproc) || make -j1 || make -j1 V=s
           fi
 
+      - name: 保存 ccache 缓存
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: openwrt/.ccache
+          key: openwrt-ccache-${{ needs.resolve-version.outputs.openwrt_version }}-${{ github.run_id }}
+
       - name: 编译失败时上传日志
         if: failure()
         uses: actions/upload-artifact@v4
@@ -236,6 +266,7 @@ jobs:
           path: |
             openwrt/logs/
             openwrt/tmp/
+          if-no-files-found: ignore
 
       # ========================================
       # 9. 整理产物（参考 OpenWrt_UFI103S.zip 格式）
@@ -366,5 +397,5 @@ jobs:
           echo "固件已上传到 Artifacts"
           echo "请到 Actions 页面下载"
           echo ""
-          echo "固件列表:"
-          ls -lh firmware/
+          echo "固件包:"
+          ls -lh OpenWrt_UFI103_CT_*.zip
