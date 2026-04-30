@@ -145,23 +145,26 @@ jobs:
           echo "========== MSM8916 补丁已注入 =========="
 
       # ========================================
-      # 4. 添加第三方 Feeds
+      # 4. 添加第三方包
       # ========================================
-      - name: 添加第三方 Feeds
+      - name: 添加第三方 Feeds 和包
         run: |
           cd openwrt
 
-          # Nikki - Mihomo(Clash Meta) 代理客户端
+          # Nikki - Mihomo(Clash Meta) 代理客户端（作为 Feed 添加）
           echo "src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki.git;main" >> feeds.conf.default
 
-          # Argon 主题
-          echo "src-git argon https://github.com/jerrykuku/luci-theme-argon.git;master" >> feeds.conf.default
+          # Argon 主题 - 独立包，直接克隆到 package 目录
+          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
 
-          # FRP 客户端
-          echo "src-git frpc https://github.com/kuoruan/luci-app-frpc.git" >> feeds.conf.default
+          # FRP 客户端 + frpc 二进制 - 独立包，直接克隆到 package 目录
+          git clone --depth 1 https://github.com/kuoruan/luci-app-frpc.git package/luci-app-frpc
+          git clone --depth 1 https://github.com/kuoruan/openwrt-frp.git package/openwrt-frp
 
           echo "========== Feeds 配置 =========="
           cat feeds.conf.default
+          echo "========== 额外包 =========="
+          ls -d package/luci-theme-argon package/luci-app-frpc package/openwrt-frp
 
       - name: 更新并安装 Feeds
         run: |
@@ -234,35 +237,114 @@ jobs:
             openwrt/tmp/build.log
 
       # ========================================
-      # 9. 整理产物
+      # 9. 整理产物（参考 OpenWrt_UFI103S.zip 格式）
       # ========================================
       - name: 整理固件文件
         if: success()
         run: |
-          mkdir -p firmware
-          cd openwrt/bin/targets/*/*
-          rm -rf packages
+          DEVICE="${{ github.event.inputs.device || 'uz801' }}"
+          VERSION="${{ needs.resolve-version.outputs.openwrt_version }}"
+          PKG_NAME="OpenWrt_UFI103_CT_${VERSION}"
+          PKG_DIR="$GITHUB_WORKSPACE/$PKG_NAME"
+          mkdir -p "$PKG_DIR"
 
-          # 复制固件文件
-          find . -type f \( -name "*.bin" -o -name "*.img" -o -name "*.img.gz" -o -name "*.itb" -o -name "*.zip" -o -name "*.sh" \) \
-            -exec cp {} $GITHUB_WORKSPACE/firmware/ \;
+          # 从编译产物中提取文件
+          BIN_DIR=$(ls -d openwrt/bin/targets/*/*/)
 
-          # 复制校验文件
-          find . -type f \( -name "*.sha256" -o -name "*.sha512" -o -name "sha256sums" -o -name "sha512sums" -o -name "*.manifest" \) \
-            -exec cp {} $GITHUB_WORKSPACE/firmware/ \;
+          echo "========== 编译产物目录 =========="
+          ls -lh "$BIN_DIR"
+
+          # 复制固件核心文件
+          cp "$BIN_DIR"/*-squashfs-gpt_both0.bin "$PKG_DIR/gpt_both0.bin" 2>/dev/null || true
+          cp "$BIN_DIR"/*-squashfs-boot.img "$PKG_DIR/boot.img" 2>/dev/null || true
+          cp "$BIN_DIR"/*-squashfs-system.img "$PKG_DIR/rootfs.img" 2>/dev/null || true
+
+          # 复制刷机脚本
+          cp "$BIN_DIR"/*-flash.sh "$PKG_DIR/flash.sh" 2>/dev/null || true
+
+          # 复制 GPT 和引导文件（如有）
+          cp "$BIN_DIR"/*-squashfs-gpt_main0.bin "$PKG_DIR/gpt_main0.bin" 2>/dev/null || true
+          cp "$BIN_DIR"/*-squashfs-gpt_backup0.bin "$PKG_DIR/gpt_backup0.bin" 2>/dev/null || true
+          cp "$BIN_DIR"/*-squashfs-lk2nd.img "$PKG_DIR/lk2nd.img" 2>/dev/null || true
+
+          # 复制 manifest
+          cp "$BIN_DIR"/*.manifest "$PKG_DIR/" 2>/dev/null || true
+
+          # 生成 Windows 刷机脚本
+          cat > "$PKG_DIR/flash.bat" << 'BAT_EOF'
+          @echo off
+          echo OpenWrt UFI103_CT Flash Tool
+          echo 请确保设备已进入 fastboot 模式
+          pause
+          fastboot flash partition gpt_both0.bin
+          fastboot flash hyp hyp.mbn
+          fastboot flash rpm rpm.mbn
+          fastboot flash sbl1 sbl1.mbn
+          fastboot flash tz tz.mbn
+          fastboot flash fsc fsc.bin
+          fastboot flash fsg fsg.bin
+          fastboot flash modemst1 modemst1.bin
+          fastboot flash modemst2 modemst2.bin
+          fastboot flash aboot aboot.bin
+          fastboot flash cdt sbc_1.0_8016.bin
+          fastboot erase boot
+          fastboot erase rootfs
+          fastboot reboot
+          echo 请等待设备重启进入 fastboot...
+          pause
+          fastboot flash boot boot.img
+          fastboot -S 200m flash rootfs rootfs.img
+          fastboot reboot
+          echo 刷机完成!
+          pause
+          BAT_EOF
+
+          # 生成 Linux/Mac 刷机脚本
+          cat > "$PKG_DIR/flash.sh" << 'SH_EOF'
+          #!/bin/sh
+          echo "OpenWrt UFI103_CT Flash Tool"
+          echo "请确保设备已进入 fastboot 模式"
+          fastboot flash partition gpt_both0.bin
+          fastboot flash hyp hyp.mbn
+          fastboot flash rpm rpm.mbn
+          fastboot flash sbl1 sbl1.mbn
+          fastboot flash tz tz.mbn
+          fastboot flash fsc fsc.bin
+          fastboot flash fsg fsg.bin
+          fastboot flash modemst1 modemst1.bin
+          fastboot flash modemst2 modemst2.bin
+          fastboot flash aboot aboot.bin
+          fastboot flash cdt sbc_1.0_8016.bin
+          fastboot erase boot
+          fastboot erase rootfs
+          fastboot reboot
+          sleep 5
+          fastboot flash boot boot.img
+          fastboot -S 200m flash rootfs rootfs.img
+          fastboot reboot
+          echo "刷机完成!"
+          SH_EOF
+          chmod +x "$PKG_DIR/flash.sh"
 
           # 生成构建信息
-          cat > $GITHUB_WORKSPACE/firmware/build_info.txt << EOF
+          cat > "$PKG_DIR/build_info.txt" << INFO_EOF
+          设备: UFI103_CT
           构建时间: $(date '+%Y-%m-%d %H:%M:%S')
-          OpenWrt 版本: ${{ needs.resolve-version.outputs.openwrt_version }}
+          OpenWrt 版本: $VERSION
           OpenWrt 源码: ${{ env.OPENWRT_COMMIT }}
           MSM8916 补丁: $MSM_REPO
-          目标设备: ${{ github.event.inputs.device || 'uz801' }}
+          目标 Profile: $DEVICE
           配置文件: ufi103.seed
-          EOF
+          INFO_EOF
 
-          echo "========== 固件文件 =========="
-          ls -lh $GITHUB_WORKSPACE/firmware/
+          echo "========== 最终固件包内容 =========="
+          ls -lh "$PKG_DIR/"
+
+          # 打包为 zip
+          cd $GITHUB_WORKSPACE
+          zip -r "${PKG_NAME}.zip" "$PKG_NAME"
+          echo "========== ZIP 文件 =========="
+          ls -lh "${PKG_NAME}.zip"
 
       # ========================================
       # 10. 上传产物
@@ -271,8 +353,8 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-ufi103-${{ needs.resolve-version.outputs.openwrt_version }}-${{ github.event.inputs.device || 'uz801' }}
-          path: firmware/
+          name: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}
+          path: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}.zip
           retention-days: 7
 
       - name: 构建摘要
