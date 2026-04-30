@@ -1,34 +1,79 @@
 # UFI103_CT OpenWrt 云编译
-# 触发方式：手动触发 或 推送 config/ 目录变更时自动触发
+# 触发方式：PR 合并到 main 后自动触发，或手动触发
+#
+# 构建流程：
+# 1. 从官方 OpenWrt 克隆源码
+# 2. 从 hkfuertes/msm8916-openwrt 注入 MSM8916 设备支持
+# 3. 添加第三方 Feeds（Nikki、Argon、FRP 等）
+# 4. 应用自定义 .config 编译固件
 
 name: Build OpenWrt for UFI103_CT
 
 on:
-  workflow_dispatch:
-    inputs:
-      source_repo:
-        description: 'OpenWrt 源码仓库'
-        required: true
-        default: 'https://github.com/hkfuertes/msm8916-openwrt'
-      source_branch:
-        description: '源码分支'
-        required: true
-        default: 'main'
-      build_debug:
-        description: '调试模式（输出详细日志）'
-        required: false
-        default: 'false'
-
+  # PR 合并到 main 后触发
   push:
+    branches:
+      - main
     paths:
       - 'config/**'
 
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      openwrt_version:
+        description: 'OpenWrt 版本标签（留空自动获取最新 25.12.x）'
+        required: false
+        default: ''
+      device:
+        description: '目标设备'
+        required: false
+        type: choice
+        default: uz801
+        options:
+          - uz801
+          - uf02
+      build_debug:
+        description: '调试模式（详细日志）'
+        required: false
+        type: boolean
+        default: false
+
 env:
   TZ: Asia/Shanghai
+  MSM_REPO: https://github.com/hkfuertes/msm8916-openwrt
 
 jobs:
+  # ==========================================
+  # 解析 OpenWrt 版本
+  # ==========================================
+  resolve-version:
+    name: 解析 OpenWrt 版本
+    runs-on: ubuntu-22.04
+    outputs:
+      openwrt_version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: 获取最新 25.12.x 版本
+        id: resolve
+        run: |
+          if [ -n "${{ github.event.inputs.openwrt_version }}" ]; then
+            VERSION="${{ github.event.inputs.openwrt_version }}"
+          else
+            VERSION=$(git ls-remote --tags https://git.openwrt.org/openwrt/openwrt.git 'v25.12.*' \
+              | grep -oP 'v25\.12\.\d+$' | sort -V | tail -1)
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: 无法解析 OpenWrt 版本"
+            exit 1
+          fi
+          echo "OpenWrt 版本: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  # ==========================================
+  # 编译固件
+  # ==========================================
   build:
-    name: 编译 OpenWrt
+    name: 编译固件 (${{ github.event.inputs.device || 'uz801' }})
+    needs: resolve-version
     runs-on: ubuntu-22.04
     timeout-minutes: 360
 
@@ -46,38 +91,66 @@ jobs:
           android: true
           dotnet: true
           haskell: true
-          large-language-models: true
+          large-packages: true
+          docker-images: true
           swap-storage: true
 
       - name: 安装编译依赖
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo -E apt-get -qq update
+          sudo -E apt-get install -y \
             build-essential clang flex bison g++ gawk gcc-multilib \
             gettext git libncurses5-dev libssl-dev python3-distutils \
             python3-setuptools rsync swig unzip zlib1g-dev quilt \
             patch curl wget xsltproc nano time python3 python3-pip \
             python3-pyelftools libelf-dev
+          sudo -E apt-get -qq autoremove --purge
+          sudo -E apt-get -qq clean
 
       # ========================================
-      # 2. 获取源码
+      # 2. 获取 OpenWrt 官方源码
       # ========================================
       - name: 克隆 OpenWrt 源码
         run: |
-          git clone --depth 1 --single-branch \
-            -b ${{ github.event.inputs.source_branch || 'main' }} \
-            ${{ github.event.inputs.source_repo || 'https://github.com/hkfuertes/msm8916-openwrt' }} \
-            openwrt
+          echo "使用 OpenWrt ${{ needs.resolve-version.outputs.openwrt_version }}"
+          git clone https://git.openwrt.org/openwrt/openwrt.git openwrt
           cd openwrt
-          echo "SOURCE_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "源码版本: $(git rev-parse --short HEAD)"
+          git checkout ${{ needs.resolve-version.outputs.openwrt_version }}
+          echo "OPENWRT_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
       # ========================================
-      # 3. 添加第三方 Feeds
+      # 3. 注入 MSM8916 设备支持
+      # ========================================
+      - name: 注入 MSM8916 设备支持
+        run: |
+          # 克隆 MSM8916 补丁仓库
+          git clone --depth 1 $MSM_REPO msm8916-patches
+
+          # 应用补丁脚本
+          cd msm8916-patches
+          chmod +x apply_patches.sh
+          ./apply_patches.sh ../openwrt
+
+          # 移动设备树和包文件到 OpenWrt 源码
+          cd ..
+          if [ -d msm8916-patches/msm89xx ]; then
+            mv msm8916-patches/msm89xx openwrt/target/linux/msm89xx
+          fi
+          if [ -d msm8916-patches/packages ]; then
+            mv msm8916-patches/packages openwrt/package/msm8916
+          fi
+
+          echo "========== MSM8916 补丁已注入 =========="
+
+      # ========================================
+      # 4. 添加第三方 Feeds
       # ========================================
       - name: 添加第三方 Feeds
         run: |
           cd openwrt
+
           # Nikki - Mihomo(Clash Meta) 代理客户端
           echo "src-git nikki https://github.com/nikkit-team/nikki.git" >> feeds.conf.default
 
@@ -87,20 +160,23 @@ jobs:
           # FRP 客户端
           echo "src-git frp https://github.com/nikkit-team/luci-app-frpc.git" >> feeds.conf.default
 
+          echo "========== Feeds 配置 =========="
           cat feeds.conf.default
 
       - name: 更新并安装 Feeds
         run: |
           cd openwrt
+          rm -rf tmp
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
       # ========================================
-      # 4. 配置
+      # 5. 配置
       # ========================================
       - name: 生成 .config
         run: |
           cd openwrt
+
           # 复制 seed 配置
           cp $GITHUB_WORKSPACE/config/ufi103.seed .config
 
@@ -109,12 +185,12 @@ jobs:
 
           # 显示最终配置摘要
           echo "========== 配置摘要 =========="
-          grep "^CONFIG_PACKAGE" .config | grep "=y" | head -50
+          grep "^CONFIG_PACKAGE" .config | grep "=y" | head -60
           echo "========== 总包数 =========="
           grep "^CONFIG_PACKAGE" .config | grep "=y" | wc -l
 
       # ========================================
-      # 5. 编译缓存
+      # 6. 编译缓存
       # ========================================
       - name: 编译缓存
         uses: pat-s/always-upload-cache@v3
@@ -123,20 +199,21 @@ jobs:
             openwrt/staging_dir
             openwrt/build_dir
             openwrt/ccache
-          key: openwrt-ufi103-${{ github.sha }}
+          key: openwrt-ufi103-${{ needs.resolve-version.outputs.openwrt_version }}-${{ hashFiles('config/ufi103.seed') }}
           restore-keys: |
             openwrt-ufi103-
 
       # ========================================
-      # 6. 下载源码包
+      # 7. 下载源码包
       # ========================================
       - name: 下载源码包
         run: |
           cd openwrt
           make download -j8
+          find dl -size -1024c -exec rm -f {} \; || true
 
       # ========================================
-      # 7. 编译
+      # 8. 编译
       # ========================================
       - name: 编译固件
         run: |
@@ -144,7 +221,7 @@ jobs:
           if [ "${{ github.event.inputs.build_debug }}" = "true" ]; then
             make -j$(nproc) V=s
           else
-            make -j$(nproc) V=e
+            make -j$(nproc) || make -j1 || make -j1 V=s
           fi
 
       - name: 编译失败时上传日志
@@ -157,40 +234,44 @@ jobs:
             openwrt/tmp/build.log
 
       # ========================================
-      # 8. 整理产物
+      # 9. 整理产物
       # ========================================
       - name: 整理固件文件
         if: success()
         run: |
           mkdir -p firmware
-          cd openwrt
+          cd openwrt/bin/targets/*/*
+          rm -rf packages
 
           # 复制固件文件
-          find bin/targets -type f \( -name "*.bin" -o -name "*.img" -o -name "*.img.gz" -o -name "*.itb" \) \
+          find . -type f \( -name "*.bin" -o -name "*.img" -o -name "*.img.gz" -o -name "*.itb" -o -name "*.zip" -o -name "*.sh" \) \
             -exec cp {} $GITHUB_WORKSPACE/firmware/ \;
 
           # 复制校验文件
-          find bin/targets -type f \( -name "*.sha256" -o -name "*.sha512" -o -name "sha256sums" -o -name "sha512sums" \) \
+          find . -type f \( -name "*.sha256" -o -name "*.sha512" -o -name "sha256sums" -o -name "sha512sums" -o -name "*.manifest" \) \
             -exec cp {} $GITHUB_WORKSPACE/firmware/ \;
 
           # 生成构建信息
-          echo "构建时间: $(date '+%Y-%m-%d %H:%M:%S')" > $GITHUB_WORKSPACE/firmware/build_info.txt
-          echo "源码版本: ${{ env.SOURCE_COMMIT }}" >> $GITHUB_WORKSPACE/firmware/build_info.txt
-          echo "源码仓库: ${{ github.event.inputs.source_repo || 'https://github.com/hkfuertes/msm8916-openwrt' }}" >> $GITHUB_WORKSPACE/firmware/build_info.txt
-          echo "配置文件: ufi103.seed" >> $GITHUB_WORKSPACE/firmware/build_info.txt
+          cat > $GITHUB_WORKSPACE/firmware/build_info.txt << EOF
+          构建时间: $(date '+%Y-%m-%d %H:%M:%S')
+          OpenWrt 版本: ${{ needs.resolve-version.outputs.openwrt_version }}
+          OpenWrt 源码: ${{ env.OPENWRT_COMMIT }}
+          MSM8916 补丁: $MSM_REPO
+          目标设备: ${{ github.event.inputs.device || 'uz801' }}
+          配置文件: ufi103.seed
+          EOF
 
-          # 列出固件文件
           echo "========== 固件文件 =========="
           ls -lh $GITHUB_WORKSPACE/firmware/
 
       # ========================================
-      # 9. 上传产物
+      # 10. 上传产物
       # ========================================
       - name: 上传固件
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: openwrt-ufi103-firmware
+          name: openwrt-ufi103-${{ needs.resolve-version.outputs.openwrt_version }}-${{ github.event.inputs.device || 'uz801' }}
           path: firmware/
           retention-days: 7
 
@@ -198,8 +279,9 @@ jobs:
         if: success()
         run: |
           echo "========== 构建完成 =========="
+          echo "OpenWrt: ${{ needs.resolve-version.outputs.openwrt_version }}"
           echo "固件已上传到 Artifacts"
           echo "请到 Actions 页面下载"
           echo ""
           echo "固件列表:"
-          ls -lh firmware/*.bin firmware/*.img firmware/*.img.gz 2>/dev/null || true
+          ls -lh firmware/
