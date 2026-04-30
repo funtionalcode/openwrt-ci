@@ -1,4 +1,5 @@
 openwrt/
 firmware/
 *.log
-.idea/*.swp
+.idea
+

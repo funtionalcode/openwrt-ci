@@ -17,6 +17,11 @@ CONFIG_TARGET_SQUASHFS=y
 CONFIG_TARGET_EXT4=y
 
 # ==========================================
+# 编译加速
+# ==========================================
+CONFIG_CCACHE=y
+
+# ==========================================
 # 核心系统
 # ==========================================
 CONFIG_PACKAGE_luci=y
@@ -24,11 +29,12 @@ CONFIG_PACKAGE_luci-i18n-base-zh-cn=y
 CONFIG_PACKAGE_luci-theme-argon=y
 
 # ==========================================
-# WiFi
+# WiFi（STA 中继 + AP）
 # ==========================================
 CONFIG_PACKAGE_wpad-wolfssl=y
 CONFIG_PACKAGE_iw=y
 CONFIG_PACKAGE_iwinfo=y
+CONFIG_PACKAGE_luci-proto-relay=y
 
 # ==========================================
 # 防火墙/网络
@@ -37,19 +43,21 @@ CONFIG_PACKAGE_luci-app-firewall=y
 CONFIG_PACKAGE_iptables-mod-tproxy=y
 CONFIG_PACKAGE_iptables-mod-nat-extra=y
 CONFIG_PACKAGE_kmod-ipt-nat=y
+CONFIG_PACKAGE_kmod-ipt-conntrack=y
+CONFIG_PACKAGE_kmod-ipt-masquerade=y
 CONFIG_PACKAGE_ipset=y
 CONFIG_PACKAGE_ip-full=y
 
 # ==========================================
-# 4G 基带（UFI103 必装）
+# 4G 基带（备用，按需启用）
 # ==========================================
-CONFIG_PACKAGE_kmod-usb-serial-option=y
-CONFIG_PACKAGE_kmod-usb-serial-qualcomm=y
-CONFIG_PACKAGE_comgt=y
-CONFIG_PACKAGE_luci-proto-3g=y
-CONFIG_PACKAGE_luci-proto-qmi=y
-CONFIG_PACKAGE_uqmi=y
-CONFIG_PACKAGE_kmod-usb-acm=y
+# CONFIG_PACKAGE_kmod-usb-serial-option is not set
+# CONFIG_PACKAGE_kmod-usb-serial-qualcomm is not set
+# CONFIG_PACKAGE_comgt is not set
+# CONFIG_PACKAGE_luci-proto-3g is not set
+# CONFIG_PACKAGE_luci-proto-qmi is not set
+# CONFIG_PACKAGE_uqmi is not set
+# CONFIG_PACKAGE_kmod-usb-acm is not set
 
 # ==========================================
 # USB 共享网络
@@ -63,6 +71,8 @@ CONFIG_PACKAGE_usbutils=y
 # FRP + WireGuard 组网
 # ==========================================
 CONFIG_PACKAGE_luci-app-frpc=y
+# CONFIG_PACKAGE_luci-app-frps is not set
+CONFIG_PACKAGE_kmod-wireguard=y
 CONFIG_PACKAGE_wireguard-tools=y
 CONFIG_PACKAGE_luci-proto-wireguard=y
 CONFIG_PACKAGE_kmod-tun=y
