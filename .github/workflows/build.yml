@@ -233,8 +233,8 @@ jobs:
         with:
           name: build-logs
           path: |
-            openwrt/logs
-            openwrt/tmp/build.log
+            openwrt/logs/
+            openwrt/tmp/
 
       # ========================================
       # 9. 整理产物（参考 OpenWrt_UFI103S.zip 格式）
