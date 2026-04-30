@@ -105,9 +105,8 @@ jobs:
             gettext git libncurses5-dev libssl-dev python3-distutils \
             python3-setuptools rsync swig unzip zlib1g-dev quilt \
             patch curl wget xsltproc nano time python3 python3-pip \
-            python3-pyelftools libelf-dev android-sdk-libsparse-utils
-          # 安装 mkbootimg（MSM8916 生成 boot.img 必需）
-          pip3 install mkbootimg
+            python3-pyelftools libelf-dev android-sdk-libsparse-utils \
+            mkbootimg
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
 
