@@ -152,13 +152,13 @@ jobs:
           cd openwrt
 
           # Nikki - Mihomo(Clash Meta) 代理客户端
-          echo "src-git nikki https://github.com/nikkit-team/nikki.git" >> feeds.conf.default
+          echo "src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki.git;main" >> feeds.conf.default
 
           # Argon 主题
-          echo "src-git argon https://github.com/nikkit-team/luci-theme-argon.git" >> feeds.conf.default
+          echo "src-git argon https://github.com/jerrykuku/luci-theme-argon.git;master" >> feeds.conf.default
 
           # FRP 客户端
-          echo "src-git frp https://github.com/nikkit-team/luci-app-frpc.git" >> feeds.conf.default
+          echo "src-git frpc https://github.com/kuoruan/luci-app-frpc.git" >> feeds.conf.default
 
           echo "========== Feeds 配置 =========="
           cat feeds.conf.default
