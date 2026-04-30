@@ -1,0 +1,205 @@
+# UFI103_CT OpenWrt 云编译
+# 触发方式：手动触发 或 推送 config/ 目录变更时自动触发
+
+name: Build OpenWrt for UFI103_CT
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: 'OpenWrt 源码仓库'
+        required: true
+        default: 'https://github.com/hkfuertes/msm8916-openwrt'
+      source_branch:
+        description: '源码分支'
+        required: true
+        default: 'main'
+      build_debug:
+        description: '调试模式（输出详细日志）'
+        required: false
+        default: 'false'
+
+  push:
+    paths:
+      - 'config/**'
+
+env:
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    name: 编译 OpenWrt
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    steps:
+      # ========================================
+      # 1. 环境准备
+      # ========================================
+      - name: 检出本仓库
+        uses: actions/checkout@v4
+
+      - name: 释放磁盘空间
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-language-models: true
+          swap-storage: true
+
+      - name: 安装编译依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk gcc-multilib \
+            gettext git libncurses5-dev libssl-dev python3-distutils \
+            python3-setuptools rsync swig unzip zlib1g-dev quilt \
+            patch curl wget xsltproc nano time python3 python3-pip \
+            python3-pyelftools libelf-dev
+
+      # ========================================
+      # 2. 获取源码
+      # ========================================
+      - name: 克隆 OpenWrt 源码
+        run: |
+          git clone --depth 1 --single-branch \
+            -b ${{ github.event.inputs.source_branch || 'main' }} \
+            ${{ github.event.inputs.source_repo || 'https://github.com/hkfuertes/msm8916-openwrt' }} \
+            openwrt
+          cd openwrt
+          echo "SOURCE_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "源码版本: $(git rev-parse --short HEAD)"
+
+      # ========================================
+      # 3. 添加第三方 Feeds
+      # ========================================
+      - name: 添加第三方 Feeds
+        run: |
+          cd openwrt
+          # Nikki - Mihomo(Clash Meta) 代理客户端
+          echo "src-git nikki https://github.com/nikkit-team/nikki.git" >> feeds.conf.default
+
+          # Argon 主题
+          echo "src-git argon https://github.com/nikkit-team/luci-theme-argon.git" >> feeds.conf.default
+
+          # FRP 客户端
+          echo "src-git frp https://github.com/nikkit-team/luci-app-frpc.git" >> feeds.conf.default
+
+          cat feeds.conf.default
+
+      - name: 更新并安装 Feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      # ========================================
+      # 4. 配置
+      # ========================================
+      - name: 生成 .config
+        run: |
+          cd openwrt
+          # 复制 seed 配置
+          cp $GITHUB_WORKSPACE/config/ufi103.seed .config
+
+          # 展开为完整配置
+          make defconfig
+
+          # 显示最终配置摘要
+          echo "========== 配置摘要 =========="
+          grep "^CONFIG_PACKAGE" .config | grep "=y" | head -50
+          echo "========== 总包数 =========="
+          grep "^CONFIG_PACKAGE" .config | grep "=y" | wc -l
+
+      # ========================================
+      # 5. 编译缓存
+      # ========================================
+      - name: 编译缓存
+        uses: pat-s/always-upload-cache@v3
+        with:
+          path: |
+            openwrt/staging_dir
+            openwrt/build_dir
+            openwrt/ccache
+          key: openwrt-ufi103-${{ github.sha }}
+          restore-keys: |
+            openwrt-ufi103-
+
+      # ========================================
+      # 6. 下载源码包
+      # ========================================
+      - name: 下载源码包
+        run: |
+          cd openwrt
+          make download -j8
+
+      # ========================================
+      # 7. 编译
+      # ========================================
+      - name: 编译固件
+        run: |
+          cd openwrt
+          if [ "${{ github.event.inputs.build_debug }}" = "true" ]; then
+            make -j$(nproc) V=s
+          else
+            make -j$(nproc) V=e
+          fi
+
+      - name: 编译失败时上传日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            openwrt/logs
+            openwrt/tmp/build.log
+
+      # ========================================
+      # 8. 整理产物
+      # ========================================
+      - name: 整理固件文件
+        if: success()
+        run: |
+          mkdir -p firmware
+          cd openwrt
+
+          # 复制固件文件
+          find bin/targets -type f \( -name "*.bin" -o -name "*.img" -o -name "*.img.gz" -o -name "*.itb" \) \
+            -exec cp {} $GITHUB_WORKSPACE/firmware/ \;
+
+          # 复制校验文件
+          find bin/targets -type f \( -name "*.sha256" -o -name "*.sha512" -o -name "sha256sums" -o -name "sha512sums" \) \
+            -exec cp {} $GITHUB_WORKSPACE/firmware/ \;
+
+          # 生成构建信息
+          echo "构建时间: $(date '+%Y-%m-%d %H:%M:%S')" > $GITHUB_WORKSPACE/firmware/build_info.txt
+          echo "源码版本: ${{ env.SOURCE_COMMIT }}" >> $GITHUB_WORKSPACE/firmware/build_info.txt
+          echo "源码仓库: ${{ github.event.inputs.source_repo || 'https://github.com/hkfuertes/msm8916-openwrt' }}" >> $GITHUB_WORKSPACE/firmware/build_info.txt
+          echo "配置文件: ufi103.seed" >> $GITHUB_WORKSPACE/firmware/build_info.txt
+
+          # 列出固件文件
+          echo "========== 固件文件 =========="
+          ls -lh $GITHUB_WORKSPACE/firmware/
+
+      # ========================================
+      # 9. 上传产物
+      # ========================================
+      - name: 上传固件
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-ufi103-firmware
+          path: firmware/
+          retention-days: 7
+
+      - name: 构建摘要
+        if: success()
+        run: |
+          echo "========== 构建完成 =========="
+          echo "固件已上传到 Artifacts"
+          echo "请到 Actions 页面下载"
+          echo ""
+          echo "固件列表:"
+          ls -lh firmware/*.bin firmware/*.img firmware/*.img.gz 2>/dev/null || true
