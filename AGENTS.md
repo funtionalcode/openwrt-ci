@@ -7,7 +7,7 @@ openwrt-ci/
 ├── .github/workflows/build.yml   # GitHub Actions 云编译工作流
 ├── config/ufi103.seed            # 编译配置（包列表）
 ├── .gitignore
-└── AGENTS.md                     # 本本文件
+└── AGENTS.md                     # 本文件
 ```
 
 ## 设备信息
