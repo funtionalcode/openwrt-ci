@@ -145,23 +145,26 @@ jobs:
           echo "========== MSM8916 补丁已注入 =========="
 
       # ========================================
-      # 4. 添加第三方 Feeds
+      # 4. 添加第三方包
       # ========================================
-      - name: 添加第三方 Feeds
+      - name: 添加第三方 Feeds 和包
         run: |
           cd openwrt
 
-          # Nikki - Mihomo(Clash Meta) 代理客户端
+          # Nikki - Mihomo(Clash Meta) 代理客户端（作为 Feed 添加）
           echo "src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki.git;main" >> feeds.conf.default
 
-          # Argon 主题
-          echo "src-git argon https://github.com/jerrykuku/luci-theme-argon.git;master" >> feeds.conf.default
+          # Argon 主题 - 独立包，直接克隆到 package 目录
+          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
 
-          # FRP 客户端
-          echo "src-git frpc https://github.com/kuoruan/luci-app-frpc.git" >> feeds.conf.default
+          # FRP 客户端 + frpc 二进制 - 独立包，直接克隆到 package 目录
+          git clone --depth 1 https://github.com/kuoruan/luci-app-frpc.git package/luci-app-frpc
+          git clone --depth 1 https://github.com/kuoruan/openwrt-frp.git package/openwrt-frp
 
           echo "========== Feeds 配置 =========="
           cat feeds.conf.default
+          echo "========== 额外包 =========="
+          ls -d package/luci-theme-argon package/luci-app-frpc package/openwrt-frp
 
       - name: 更新并安装 Feeds
         run: |
