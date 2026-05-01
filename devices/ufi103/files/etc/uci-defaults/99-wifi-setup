@@ -1,6 +1,11 @@
 #!/bin/sh
 # 首次启动时启用 WiFi 并设置默认 AP
 
+# 设置 LAN IP 网段
+uci set network.lan.ipaddr='192.168.100.1'
+uci set network.lan.netmask='255.255.255.0'
+uci commit network
+
 uci set wireless.radio0.disabled='0'
 uci set wireless.radio0.htmode='HT40'
 uci set wireless.radio0.channel='auto'

@@ -278,10 +278,10 @@ jobs:
           cp /tmp/platform-tools/AdbWinUsbApi.dll "$PKG_DIR/AdbWinUsbApi.dll"
           rm -rf /tmp/platform-tools /tmp/platform-tools.zip
 
-          # 复制仓库原厂基带文件到 firmware/ 子目录
+          # 复制设备原厂基带文件到 firmware/ 子目录
           echo "========== 复制原厂基带文件 =========="
           mkdir -p "$PKG_DIR/firmware"
-          cp "$GITHUB_WORKSPACE/firmware/"* "$PKG_DIR/firmware/"
+          cp "$GITHUB_WORKSPACE/devices/$DEVICE/firmware/"* "$PKG_DIR/firmware/" 2>/dev/null || echo "No firmware files to copy"
 
           # 使用设备目录中的刷机脚本
           if [ -f "devices/$DEVICE/flash.bat" ]; then
