@@ -309,34 +309,45 @@ jobs:
           # 复制 manifest
           cp "$BIN_DIR"/*.manifest "$PKG_DIR/" 2>/dev/null || true
 
-          # 生成 Windows 刷机脚本
+          # 下载 Android platform-tools for Windows
+          echo "========== 下载 Android platform-tools =========="
+          wget -q "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" -O /tmp/platform-tools.zip
+          unzip -q /tmp/platform-tools.zip -d /tmp/
+          cp /tmp/platform-tools/adb.exe "$PKG_DIR/adb.exe"
+          cp /tmp/platform-tools/fastboot.exe "$PKG_DIR/fastboot.exe"
+          cp /tmp/platform-tools/AdbWinApi.dll "$PKG_DIR/AdbWinApi.dll"
+          cp /tmp/platform-tools/AdbWinUsbApi.dll "$PKG_DIR/AdbWinUsbApi.dll"
+          rm -rf /tmp/platform-tools /tmp/platform-tools.zip
+
+          # 生成 Windows 刷机脚本（使用 CRLF 换行符）
           cat > "$PKG_DIR/flash.bat" << 'BAT_EOF'
           @echo off
           echo OpenWrt UFI103_CT Flash Tool
-          echo 请确保设备已进入 fastboot 模式
+          echo Please make sure the device is in fastboot mode
           pause
-          fastboot flash partition gpt_both0.bin
-          fastboot flash hyp hyp.mbn
-          fastboot flash rpm rpm.mbn
-          fastboot flash sbl1 sbl1.mbn
-          fastboot flash tz tz.mbn
-          fastboot flash fsc fsc.bin
-          fastboot flash fsg fsg.bin
-          fastboot flash modemst1 modemst1.bin
-          fastboot flash modemst2 modemst2.bin
-          fastboot flash aboot aboot.bin
-          fastboot flash cdt sbc_1.0_8016.bin
-          fastboot erase boot
-          fastboot erase rootfs
-          fastboot reboot
-          echo 请等待设备重启进入 fastboot...
+          "%~dp0fastboot.exe" flash partition gpt_both0.bin
+          "%~dp0fastboot.exe" flash hyp hyp.mbn
+          "%~dp0fastboot.exe" flash rpm rpm.mbn
+          "%~dp0fastboot.exe" flash sbl1 sbl1.mbn
+          "%~dp0fastboot.exe" flash tz tz.mbn
+          "%~dp0fastboot.exe" flash fsc fsc.bin
+          "%~dp0fastboot.exe" flash fsg fsg.bin
+          "%~dp0fastboot.exe" flash modemst1 modemst1.bin
+          "%~dp0fastboot.exe" flash modemst2 modemst2.bin
+          "%~dp0fastboot.exe" flash aboot aboot.bin
+          "%~dp0fastboot.exe" flash cdt sbc_1.0_8016.bin
+          "%~dp0fastboot.exe" erase boot
+          "%~dp0fastboot.exe" erase rootfs
+          "%~dp0fastboot.exe" reboot
+          echo Please wait for device to re-enter fastboot...
           pause
-          fastboot flash boot boot.img
-          fastboot -S 200m flash rootfs rootfs.img
-          fastboot reboot
-          echo 刷机完成!
+          "%~dp0fastboot.exe" flash boot boot.img
+          "%~dp0fastboot.exe" -S 200m flash rootfs rootfs.img
+          "%~dp0fastboot.exe" reboot
+          echo Flash completed!
           pause
           BAT_EOF
+          sed -i 's/$/\r/' "$PKG_DIR/flash.bat"
 
           # 生成 Linux/Mac 刷机脚本
           cat > "$PKG_DIR/flash.sh" << 'SH_EOF'
@@ -379,12 +390,6 @@ jobs:
           echo "========== 最终固件包内容 =========="
           ls -lh "$PKG_DIR/"
 
-          # 打包为 zip
-          cd $GITHUB_WORKSPACE
-          zip -r "${PKG_NAME}.zip" "$PKG_NAME"
-          echo "========== ZIP 文件 =========="
-          ls -lh "${PKG_NAME}.zip"
-
       # ========================================
       # 10. 上传产物
       # ========================================
@@ -393,7 +398,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}
-          path: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}.zip
+          path: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}/
           retention-days: 7
 
       - name: 构建摘要
@@ -403,6 +408,3 @@ jobs:
           echo "OpenWrt: ${{ needs.resolve-version.outputs.openwrt_version }}"
           echo "固件已上传到 Artifacts"
           echo "请到 Actions 页面下载"
-          echo ""
-          echo "固件包:"
-          ls -lh OpenWrt_UFI103_CT_*.zip
