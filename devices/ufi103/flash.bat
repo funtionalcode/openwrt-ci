@@ -8,276 +8,204 @@ echo   OpenWrt UFI103_CT Flash Tool
 echo ============================================
 echo.
 
-:: ---- Check fastboot ----
-where fastboot >nul 2>&1
-if !errorlevel!==0 (
-    set "FB=fastboot"
-) else if exist "%~dp0fastboot.exe" (
-    set "FB=%~dp0fastboot.exe"
-) else (
-    echo [ERROR] fastboot not found.
-    echo Place fastboot.exe alongside this script.
-    pause
-    exit /b 1
-)
-echo [OK] Using: !FB!
+set "ROOT=%~dp0"
+set "FW=%ROOT%firmware\"
 
-:: ---- Check adb ----
+REM ---- Find fastboot ----
+set "FB="
+where fastboot >nul 2>&1
+if !errorlevel!==0 (set "FB=fastboot") else if exist "%ROOT%fastboot.exe" (set "FB=%ROOT%fastboot.exe")
+if "%FB%"=="" (
+    echo [ERROR] fastboot not found.
+    pause & exit /b 1
+)
+echo [OK] fastboot: %FB%
+
+REM ---- Find adb ----
 set "ADB="
 where adb >nul 2>&1
-if !errorlevel!==0 (
-    set "ADB=adb"
-) else if exist "%~dp0adb.exe" (
-    set "ADB=%~dp0adb.exe"
-)
+if !errorlevel!==0 (set "ADB=adb") else if exist "%ROOT%adb.exe" (set "ADB=%ROOT%adb.exe")
 
-:: ---- Paths ----
-set "ROOT=%~dp0"
-if exist "%ROOT%firmware\" (
-    set "FW=%ROOT%firmware\"
-) else (
-    set "FW=%ROOT%"
-)
+REM ===========================================
+REM Phase 1: Device Detection
+REM ===========================================
+echo ========== [1/4] Device Detection ==========
 
-:: ---- Check required files ----
-set MISSING=0
-if not exist "%ROOT%gpt_both0.bin" ( echo [MISSING] gpt_both0.bin & set MISSING=1 )
-if not exist "%ROOT%boot.img"      ( echo [MISSING] boot.img      & set MISSING=1 )
-if not exist "%ROOT%rootfs.img"    ( echo [MISSING] rootfs.img    & set MISSING=1 )
-if not exist "%FW%lk2nd.img"       ( echo [MISSING] firmware\lk2nd.img & set MISSING=1 )
-if !MISSING!==1 (
-    echo.
-    echo [ERROR] Required files missing. Aborting.
-    pause
-    exit /b 1
-)
-echo [OK] Required files found
-echo.
-
-:: ===========================================
-:: Phase 0: Device Detection
-:: ===========================================
-echo ========== Phase 0: Device Detection ==========
-
-"!FB!" devices 2>nul | findstr "fastboot" >nul
+:check_device
+%FB% devices 2>nul | findstr "fastboot" >nul
 if !errorlevel!==0 (
     echo [OK] Device in fastboot mode
-    goto phase1
+    goto :phase2
 )
 
 if not "%ADB%"=="" (
-    "%ADB%" devices 2>nul | findstr /R "device$" >nul
+    %ADB% devices 2>nul | findstr /R "device$" >nul
     if !errorlevel!==0 (
         echo [OK] Device in ADB mode, rebooting to bootloader...
-        "%ADB%" reboot bootloader
+        %ADB% reboot bootloader
         timeout /NOBREAK /T 5 >nul
-        goto phase1
+        goto :phase2
     )
 )
 
-echo [ERROR] No device found.
-echo   Hold reset + plug USB to enter fastboot
-echo   Or enable USB debugging for ADB detection
-pause
-exit /b 1
-
-:phase1
+echo [!] No device found.
+echo    Hold reset + plug USB, or: adb reboot bootloader
 echo.
+echo    Press any key to retry...
+pause >nul
+goto :check_device
 
-:: ===========================================
-:: Phase 1: lk2nd Secondary Bootloader
-:: ===========================================
-echo ========== Phase 1: lk2nd Secondary Bootloader ==========
+REM ===========================================
+REM Phase 2: lk2nd + Baseband Backup
+REM ===========================================
+:phase2
+echo.
+echo ========== [2/4] lk2nd + Baseband Backup ==========
 
-"!FB!" erase boot >nul 2>&1
-"!FB!" flash boot "%FW%lk2nd.img"
+REM Flash lk2nd
+%FB% erase boot >nul 2>&1
+%FB% flash boot "%FW%lk2nd.img"
 if !errorlevel! neq 0 (
-    echo [FAIL] lk2nd flash failed
-    pause
-    exit /b 1
+    echo [FAIL] lk2nd flash failed!
+    pause & exit /b 1
 )
-echo [OK] lk2nd flashed
-echo Rebooting into lk2nd fastboot...
-"!FB!" reboot
+echo [OK] lk2nd flashed, rebooting...
+%FB% reboot
 timeout /NOBREAK /T 3 >nul
 echo Press any key when device is back in fastboot...
 pause >nul
 
 :wait_lk2nd
-"!FB!" devices 2>nul | findstr "fastboot" >nul
-if !errorlevel! neq 0 (
-    timeout /t 2 /nobreak >nul
-    goto wait_lk2nd
-)
+%FB% devices 2>nul | findstr "fastboot" >nul
+if !errorlevel! neq 0 (timeout /t 2 /nobreak >nul & goto :wait_lk2nd)
 echo [OK] lk2nd fastboot ready
+
+REM Backup baseband (only works in lk2nd fastboot)
+echo Dumping baseband...
+echo [1/4] fsc...
+%FB% oem dump fsc >nul 2>&1 && (timeout /NOBREAK /T 1 >nul & %FB% get_staged "%ROOT%fsc.bin" >nul 2>&1 && echo  [OK] fsc.bin) || echo  [SKIP] dump failed
+
+echo [2/4] fsg...
+%FB% oem dump fsg >nul 2>&1 && (timeout /NOBREAK /T 1 >nul & %FB% get_staged "%ROOT%fsg.bin" >nul 2>&1 && echo  [OK] fsg.bin) || echo  [SKIP] dump failed
+
+echo [3/4] modemst1...
+%FB% oem dump modemst1 >nul 2>&1 && (timeout /NOBREAK /T 1 >nul & %FB% get_staged "%ROOT%modemst1.bin" >nul 2>&1 && echo  [OK] modemst1.bin) || echo  [SKIP] dump failed
+
+echo [4/4] modemst2...
+%FB% oem dump modemst2 >nul 2>&1 && (timeout /NOBREAK /T 1 >nul & %FB% get_staged "%ROOT%modemst2.bin" >nul 2>&1 && echo  [OK] modemst2.bin) || echo  [SKIP] dump failed
+
+REM Erase lk2nd, back to stock fastboot
 echo.
-
-:: ===========================================
-:: Phase 2: Baseband Backup
-:: ===========================================
-echo ========== Phase 2: Baseband Backup ==========
-
-echo [1/4] Dumping fsc...
-"!FB!" oem dump fsc >nul 2>&1
-if !errorlevel!==0 (
-    timeout /NOBREAK /T 1 >nul
-    "!FB!" get_staged "%ROOT%fsc.bin" >nul 2>&1 && echo  [OK] fsc.bin saved
-) else ( echo  [SKIP] fsc dump failed )
-
-echo [2/4] Dumping fsg...
-"!FB!" oem dump fsg >nul 2>&1
-if !errorlevel!==0 (
-    timeout /NOBREAK /T 1 >nul
-    "!FB!" get_staged "%ROOT%fsg.bin" >nul 2>&1 && echo  [OK] fsg.bin saved
-) else ( echo  [SKIP] fsg dump failed )
-
-echo [3/4] Dumping modemst1...
-"!FB!" oem dump modemst1 >nul 2>&1
-if !errorlevel!==0 (
-    timeout /NOBREAK /T 1 >nul
-    "!FB!" get_staged "%ROOT%modemst1.bin" >nul 2>&1 && echo  [OK] modemst1.bin saved
-) else ( echo  [SKIP] modemst1 dump failed )
-
-echo [4/4] Dumping modemst2...
-"!FB!" oem dump modemst2 >nul 2>&1
-if !errorlevel!==0 (
-    timeout /NOBREAK /T 1 >nul
-    "!FB!" get_staged "%ROOT%modemst2.bin" >nul 2>&1 && echo  [OK] modemst2.bin saved
-) else ( echo  [SKIP] modemst2 dump failed )
-echo.
-
-:: ===========================================
-:: Phase 3: Low-Level Firmware
-:: ===========================================
-echo ========== Phase 3: Low-Level Firmware ==========
-
-:: Erase lk2nd, back to stock fastboot
-"!FB!" erase lk2nd >nul 2>&1
-"!FB!" erase boot >nul 2>&1
-"!FB!" reboot bootloader
+%FB% erase lk2nd >nul 2>&1
+%FB% erase boot >nul 2>&1
+%FB% reboot bootloader
 echo Rebooting to stock fastboot...
 timeout /NOBREAK /T 3 >nul
 echo Press any key when device is back in fastboot...
 pause >nul
 
 :wait_stock
-"!FB!" devices 2>nul | findstr "fastboot" >nul
-if !errorlevel! neq 0 (
-    timeout /t 2 /nobreak >nul
-    goto wait_stock
-)
+%FB% devices 2>nul | findstr "fastboot" >nul
+if !errorlevel! neq 0 (timeout /t 2 /nobreak >nul & goto :wait_stock)
 echo [OK] Stock fastboot ready
+
+REM ===========================================
+REM Phase 3: Low-Level Firmware
+REM ===========================================
 echo.
+echo ========== [3/4] Low-Level Firmware ==========
 
-:: Partition table
-echo [1/10] Flashing partition table...
-"!FB!" flash partition "%ROOT%gpt_both0.bin"
-if !errorlevel! neq 0 ( echo [FAIL] partition & pause & exit /b 1 )
+echo [1/12] Partition table...
+%FB% flash partition "%ROOT%gpt_both0.bin"
+if !errorlevel! neq 0 (echo [FAIL] & pause & exit /b 1)
 
-:: Flash firmware helper
-set "HAS_FAIL=0"
+echo [2/12] hyp...
+if exist "%FW%hyp.mbn" (%FB% flash hyp "%FW%hyp.mbn") else (echo  SKIP)
 
-echo [2/10] hyp.mbn...
-if exist "%FW%hyp.mbn" (
-    "!FB!" flash hyp "%FW%hyp.mbn" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
+echo [3/12] rpm...
+if exist "%FW%rpm.mbn" (%FB% flash rpm "%FW%rpm.mbn") else (echo  SKIP)
 
-echo [3/10] rpm.mbn...
-if exist "%FW%rpm.mbn" (
-    "!FB!" flash rpm "%FW%rpm.mbn" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
+echo [4/12] sbl1...
+if exist "%FW%sbl1.mbn" (%FB% flash sbl1 "%FW%sbl1.mbn") else (echo  SKIP)
 
-echo [4/10] sbl1.mbn...
-if exist "%FW%sbl1.mbn" (
-    "!FB!" flash sbl1 "%FW%sbl1.mbn" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
+echo [5/12] tz...
+if exist "%FW%tz.mbn" (%FB% flash tz "%FW%tz.mbn") else (echo  SKIP)
 
-echo [5/10] tz.mbn...
-if exist "%FW%tz.mbn" (
-    "!FB!" flash tz "%FW%tz.mbn" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
-
-echo [6/10] fsc...
+echo [6/12] fsc (from dump or firmware)...
 if exist "%ROOT%fsc.bin" (
-    "!FB!" flash fsc "%ROOT%fsc.bin" || set HAS_FAIL=1
+    %FB% flash fsc "%ROOT%fsc.bin"
 ) else if exist "%FW%fsc.mbn" (
-    "!FB!" flash fsc "%FW%fsc.mbn" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
+    %FB% flash fsc "%FW%fsc.mbn"
+) else (echo  SKIP)
 
-echo [7/10] fsg...
+echo [7/12] fsg (from dump or firmware)...
 if exist "%ROOT%fsg.bin" (
-    "!FB!" flash fsg "%ROOT%fsg.bin" || set HAS_FAIL=1
+    %FB% flash fsg "%ROOT%fsg.bin"
 ) else if exist "%FW%fsg.mbn" (
-    "!FB!" flash fsg "%FW%fsg.mbn" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
+    %FB% flash fsg "%FW%fsg.mbn"
+) else (echo  SKIP)
 
-echo [8/10] modemst1...
+echo [8/12] modemst1 (from dump or firmware)...
 if exist "%ROOT%modemst1.bin" (
-    "!FB!" flash modemst1 "%ROOT%modemst1.bin" || set HAS_FAIL=1
+    %FB% flash modemst1 "%ROOT%modemst1.bin"
 ) else if exist "%FW%modemst1.mbn" (
-    "!FB!" flash modemst1 "%FW%modemst1.mbn" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
+    %FB% flash modemst1 "%FW%modemst1.mbn"
+) else (echo  SKIP)
 
-echo [9/10] modemst2...
+echo [9/12] modemst2 (from dump or firmware)...
 if exist "%ROOT%modemst2.bin" (
-    "!FB!" flash modemst2 "%ROOT%modemst2.bin" || set HAS_FAIL=1
+    %FB% flash modemst2 "%ROOT%modemst2.bin"
 ) else if exist "%FW%modemst2.mbn" (
-    "!FB!" flash modemst2 "%FW%modemst2.mbn" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
+    %FB% flash modemst2 "%FW%modemst2.mbn"
+) else (echo  SKIP)
 
-echo [10/10] aboot...
+echo [10/12] aboot...
 if exist "%FW%aboot.bin" (
-    "!FB!" flash aboot "%FW%aboot.bin" || set HAS_FAIL=1
+    %FB% flash aboot "%FW%aboot.bin"
 ) else if exist "%FW%aboot.mbn" (
-    "!FB!" flash aboot "%FW%aboot.mbn" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
+    %FB% flash aboot "%FW%aboot.mbn"
+) else (echo  SKIP)
 
-:: CDT
-echo [11/11] cdt...
+echo [11/12] cdt...
 if exist "%FW%sbc_1.0_8016.bin" (
-    "!FB!" flash cdt "%FW%sbc_1.0_8016.bin" || set HAS_FAIL=1
-) else ( echo  [SKIP] not found )
+    %FB% flash cdt "%FW%sbc_1.0_8016.bin" 2>&1 | findstr /V "partition table doesn't exist" >nul
+) else (echo  SKIP)
 
-:: Erase old system
-"!FB!" erase boot >nul 2>&1
-"!FB!" erase rootfs >nul 2>&1
-"!FB!" reboot
-echo.
+echo [12/12] Erase old system...
+%FB% erase boot >nul 2>&1
+%FB% erase rootfs >nul 2>&1
 
-:: ===========================================
-:: Phase 4: OpenWrt System
-:: ===========================================
-echo ========== Phase 4: OpenWrt System ==========
-
-echo Waiting for fastboot...
+echo Rebooting...
+%FB% reboot
 timeout /NOBREAK /T 3 >nul
 echo Press any key when device is back in fastboot...
 pause >nul
 
-:wait_final
-"!FB!" devices 2>nul | findstr "fastboot" >nul
-if !errorlevel! neq 0 (
-    timeout /t 2 /nobreak >nul
-    goto wait_final
-)
+:wait_phase3
+%FB% devices 2>nul | findstr "fastboot" >nul
+if !errorlevel! neq 0 (timeout /t 2 /nobreak >nul & goto :wait_phase3)
 echo [OK] Fastboot ready
+
+REM ===========================================
+REM Phase 4: OpenWrt System
+REM ===========================================
 echo.
+echo ========== [4/4] OpenWrt System ==========
 
 echo Flashing boot.img...
-"!FB!" flash boot "%ROOT%boot.img"
-if !errorlevel! neq 0 ( echo [FAIL] boot & pause & exit /b 1 )
+%FB% flash boot "%ROOT%boot.img"
+if !errorlevel! neq 0 (echo [FAIL] & pause & exit /b 1)
 
 echo Flashing rootfs.img...
-"!FB!" -S 200m flash rootfs "%ROOT%rootfs.img"
-if !errorlevel! neq 0 ( echo [FAIL] rootfs & pause & exit /b 1 )
+%FB% -S 200m flash rootfs "%ROOT%rootfs.img"
+if !errorlevel! neq 0 (echo [FAIL] & pause & exit /b 1)
 
-echo.
 echo Rebooting...
-"!FB!" reboot
+%FB% reboot
 
 echo.
 echo ============================================
-echo   Flash completed successfully!
+echo   Flash completed!
 echo ============================================
 echo.
 echo WiFi: SSID=OpenWrt-UFI103  Password=12345678
