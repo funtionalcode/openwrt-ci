@@ -256,14 +256,10 @@ jobs:
           PKG_DIR="OpenWrt_${DISPLAY}_${VERSION}"
           mkdir -p "$PKG_DIR"
 
-          # 复制核心镜像
-          cp "$BIN_DIR"/gpt_both0.bin "$PKG_DIR/" 2>/dev/null || true
-          cp "$BIN_DIR"/*boot.img "$PKG_DIR/" 2>/dev/null || true
-          cp "$BIN_DIR"/*rootfs*.img "$PKG_DIR/" 2>/dev/null || true
-
-          # 重命名为标准文件名
-          [ -f "$PKG_DIR"/*-boot.img ] && mv "$PKG_DIR"/*-boot.img "$PKG_DIR/boot.img"
-          [ -f "$PKG_DIR"/*-rootfs.img ] && mv "$PKG_DIR"/*-rootfs.img "$PKG_DIR/rootfs.img"
+          # 复制核心镜像（glob 匹配带前缀的文件名，直接命名为标准名）
+          cp "$BIN_DIR"/*gpt_both0.bin "$PKG_DIR/gpt_both0.bin" 2>/dev/null || true
+          cp "$BIN_DIR"/*boot.img "$PKG_DIR/boot.img" 2>/dev/null || true
+          cp "$BIN_DIR"/*system.img "$PKG_DIR/rootfs.img" 2>/dev/null || true
 
           # 复制 manifest
           cp "$BIN_DIR"/*.manifest "$PKG_DIR/" 2>/dev/null || true
