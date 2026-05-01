@@ -77,6 +77,8 @@ jobs:
     needs: resolve-version
     runs-on: ubuntu-22.04
     timeout-minutes: 360
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
 
     steps:
       # ========================================
@@ -262,7 +264,7 @@ jobs:
           fi
 
       - name: 保存 ccache 缓存
-        if: github.ref == 'refs/heads/main'
+        if: success()
         uses: actions/cache/save@v4
         with:
           path: openwrt/.ccache
