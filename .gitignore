@@ -1,5 +1,4 @@
 openwrt/
-firmware/
 *.log
 .idea
 docs

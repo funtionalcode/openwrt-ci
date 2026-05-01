@@ -322,18 +322,9 @@ jobs:
           cp "$BIN_DIR"/*-squashfs-gpt_backup0.bin "$PKG_DIR/gpt_backup0.bin" 2>/dev/null || true
           cp "$BIN_DIR"/*-squashfs-lk2nd.img "$PKG_DIR/lk2nd.img" 2>/dev/null || true
 
-          # 解压 firmware.zip 提取基带/引导文件（通常包含 hyp/rpm/sbl1/tz/aboot/fsc/fsg/modemst/cdt 等）
-          FIRMWARE_ZIP=$(ls "$BIN_DIR"/*-firmware.zip 2>/dev/null | head -1)
-          if [ -n "$FIRMWARE_ZIP" ]; then
-            echo "========== 解压 firmware.zip 提取基带文件 =========="
-            unzip -j -o "$FIRMWARE_ZIP" -d "$PKG_DIR" "*/hyp.mbn" "*/rpm.mbn" "*/sbl1.mbn" "*/tz.mbn" "*/aboot.bin" "*/fsc.bin" "*/fsg.bin" "*/modemst1.bin" "*/modemst2.bin" "*/sbc_1.0_8016.bin" "*/cdt.bin" 2>/dev/null || true
-            echo "========== 编译firmware产物目录 =========="
-            ls -lh "$PKG_DIR"
-            # 如果 zip 内文件名是 cdt.bin 而不是 sbc_1.0_8016.bin，则重命名
-            if [ -f "$PKG_DIR/cdt.bin" ] && [ ! -f "$PKG_DIR/sbc_1.0_8016.bin" ]; then
-              mv "$PKG_DIR/cdt.bin" "$PKG_DIR/sbc_1.0_8016.bin"
-            fi
-          fi
+          # 复制仓库中原厂基带/引导文件（从设备备份）
+          echo "========== 复制原厂基带文件 =========="
+          cp "$GITHUB_WORKSPACE/firmware/"* "$PKG_DIR/"
 
           # 复制 manifest
           cp "$BIN_DIR"/*.manifest "$PKG_DIR/" 2>/dev/null || true
@@ -359,12 +350,11 @@ jobs:
           if exist rpm.mbn ("%~dp0fastboot.exe" flash rpm rpm.mbn) else (echo SKIP rpm.mbn - not found)
           if exist sbl1.mbn ("%~dp0fastboot.exe" flash sbl1 sbl1.mbn) else (echo SKIP sbl1.mbn - not found)
           if exist tz.mbn ("%~dp0fastboot.exe" flash tz tz.mbn) else (echo SKIP tz.mbn - not found)
-          if exist fsc.bin ("%~dp0fastboot.exe" flash fsc fsc.bin) else (echo SKIP fsc.bin - not found)
-          if exist fsg.bin ("%~dp0fastboot.exe" flash fsg fsg.bin) else (echo SKIP fsg.bin - not found)
-          if exist modemst1.bin ("%~dp0fastboot.exe" flash modemst1 modemst1.bin) else (echo SKIP modemst1.bin - not found)
-          if exist modemst2.bin ("%~dp0fastboot.exe" flash modemst2 modemst2.bin) else (echo SKIP modemst2.bin - not found)
-          if exist aboot.bin ("%~dp0fastboot.exe" flash aboot aboot.bin) else (echo SKIP aboot.bin - not found)
-          if exist sbc_1.0_8016.bin ("%~dp0fastboot.exe" flash cdt sbc_1.0_8016.bin) else (echo SKIP sbc_1.0_8016.bin - not found)
+          if exist fsc.mbn ("%~dp0fastboot.exe" flash fsc fsc.mbn) else (echo SKIP fsc.mbn - not found)
+          if exist fsg.mbn ("%~dp0fastboot.exe" flash fsg fsg.mbn) else (echo SKIP fsg.mbn - not found)
+          if exist modemst1.mbn ("%~dp0fastboot.exe" flash modemst1 modemst1.mbn) else (echo SKIP modemst1.mbn - not found)
+          if exist modemst2.mbn ("%~dp0fastboot.exe" flash modemst2 modemst2.mbn) else (echo SKIP modemst2.mbn - not found)
+          if exist aboot.mbn ("%~dp0fastboot.exe" flash aboot aboot.mbn) else (echo SKIP aboot.mbn - not found)
           "%~dp0fastboot.exe" erase boot
           "%~dp0fastboot.exe" erase rootfs
           "%~dp0fastboot.exe" reboot
@@ -388,12 +378,11 @@ jobs:
           [ -f rpm.mbn ] && fastboot flash rpm rpm.mbn || echo "SKIP rpm.mbn"
           [ -f sbl1.mbn ] && fastboot flash sbl1 sbl1.mbn || echo "SKIP sbl1.mbn"
           [ -f tz.mbn ] && fastboot flash tz tz.mbn || echo "SKIP tz.mbn"
-          [ -f fsc.bin ] && fastboot flash fsc fsc.bin || echo "SKIP fsc.bin"
-          [ -f fsg.bin ] && fastboot flash fsg fsg.bin || echo "SKIP fsg.bin"
-          [ -f modemst1.bin ] && fastboot flash modemst1 modemst1.bin || echo "SKIP modemst1.bin"
-          [ -f modemst2.bin ] && fastboot flash modemst2 modemst2.bin || echo "SKIP modemst2.bin"
-          [ -f aboot.bin ] && fastboot flash aboot aboot.bin || echo "SKIP aboot.bin"
-          [ -f sbc_1.0_8016.bin ] && fastboot flash cdt sbc_1.0_8016.bin || echo "SKIP sbc_1.0_8016.bin"
+          [ -f fsc.mbn ] && fastboot flash fsc fsc.mbn || echo "SKIP fsc.mbn"
+          [ -f fsg.mbn ] && fastboot flash fsg fsg.mbn || echo "SKIP fsg.mbn"
+          [ -f modemst1.mbn ] && fastboot flash modemst1 modemst1.mbn || echo "SKIP modemst1.mbn"
+          [ -f modemst2.mbn ] && fastboot flash modemst2 modemst2.mbn || echo "SKIP modemst2.mbn"
+          [ -f aboot.mbn ] && fastboot flash aboot aboot.mbn || echo "SKIP aboot.mbn"
           fastboot erase boot
           fastboot erase rootfs
           fastboot reboot
