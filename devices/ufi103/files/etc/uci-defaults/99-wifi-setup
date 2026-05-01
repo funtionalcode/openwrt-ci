@@ -1,22 +1,32 @@
 #!/bin/sh
-# 首次启动时启用 WiFi 并设置默认 AP
+# UFI103 首次启动: 配置 WiFi AP
 
-# 设置 LAN IP 网段
 uci set network.lan.ipaddr='192.168.100.1'
 uci set network.lan.netmask='255.255.255.0'
 uci commit network
 
-uci set wireless.radio0.disabled='0'
-uci set wireless.radio0.htmode='HT40'
+# 如果无线配置不存在则先创建默认配置
+if [ -z "$(uci -q get wireless.radio0)" ]; then
+    wifi config
+fi
+
+uci set wireless.radio0=wifi-device
+uci set wireless.radio0.type='mac80211'
 uci set wireless.radio0.channel='auto'
+uci set wireless.radio0.htmode='HT40'
 uci set wireless.radio0.country='CN'
 uci set wireless.radio0.txpower='20'
+uci set wireless.radio0.disabled='0'
 
-uci set wireless.@wifi-iface[0].device='radio0'
-uci set wireless.@wifi-iface[0].mode='ap'
-uci set wireless.@wifi-iface[0].network='lan'
-uci set wireless.@wifi-iface[0].ssid='OpenWrt-UFI103'
-uci set wireless.@wifi-iface[0].encryption='psk2+ccmp'
-uci set wireless.@wifi-iface[0].key='12345678'
+# 删除默认的 wifi-iface（可能是 client 模式），创建 AP
+while uci -q delete wireless.@wifi-iface[0]; do :; done
+
+uci set wireless.default_radio0=wifi-iface
+uci set wireless.default_radio0.device='radio0'
+uci set wireless.default_radio0.mode='ap'
+uci set wireless.default_radio0.network='lan'
+uci set wireless.default_radio0.ssid='haogege3'
+uci set wireless.default_radio0.encryption='psk2+ccmp'
+uci set wireless.default_radio0.key='haogege3666'
 
 uci commit wireless
