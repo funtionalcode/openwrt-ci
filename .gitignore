@@ -3,3 +3,5 @@ firmware/
 *.log
 .idea
 docs
+.claude
+.qoder

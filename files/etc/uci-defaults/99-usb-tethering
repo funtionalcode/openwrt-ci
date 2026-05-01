@@ -1,0 +1,19 @@
+#!/bin/sh
+# 配置 USB 共享网络：创建 usbwan 接口并加入防火墙 WAN 区域
+
+# 如果 usbwan 接口不存在则创建
+if ! uci get network.usbwan >/dev/null 2>&1; then
+  uci set network.usbwan=interface
+fi
+uci set network.usbwan.proto='dhcp'
+uci set network.usbwan.device='usb0'
+uci set network.usbwan.hostname='OpenWrt-UFI103'
+
+# 将 usbwan 加入防火墙 WAN 区域
+WAN_ZONE=$(uci show firewall | grep "='wan'" | head -1 | cut -d. -f2)
+if [ -n "$WAN_ZONE" ]; then
+  uci add_list firewall.$WAN_ZONE.network='usbwan'
+fi
+
+uci commit network
+uci commit firewall
