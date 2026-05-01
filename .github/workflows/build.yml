@@ -205,6 +205,9 @@ jobs:
           # 展开为完整配置
           make defconfig
 
+          # 注入自定义默认配置（WiFi 默认开启 + USB 共享网络支持）
+          cp -r $GITHUB_WORKSPACE/files .
+
           # 检查 seed 中的包是否被 defconfig 降级（说明依赖缺失）
           MISSING=""
           while IFS= read -r line; do

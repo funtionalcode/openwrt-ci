@@ -1,0 +1,22 @@
+#!/bin/sh
+# 当 USB 网络接口插入时，动态加入防火墙 WAN 区域
+# 覆盖 usb* 和 eth1+（排除 eth0，通常是 LAN）
+
+[ "$ACTION" = "add" ] || exit 0
+
+case "$INTERFACE" in
+  usb*|eth[1-9]*)
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+
+WAN_ZONE=$(uci show firewall | grep "='wan'" | head -1 | cut -d. -f2)
+[ -z "$WAN_ZONE" ] && exit 0
+
+# 避免重复添加
+if ! uci get firewall.$WAN_ZONE.network | grep -q "$INTERFACE"; then
+  uci add_list firewall.$WAN_ZONE.network="$INTERFACE"
+  uci commit firewall
+fi
