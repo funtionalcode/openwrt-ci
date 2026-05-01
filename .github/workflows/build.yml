@@ -327,6 +327,8 @@ jobs:
           if [ -n "$FIRMWARE_ZIP" ]; then
             echo "========== 解压 firmware.zip 提取基带文件 =========="
             unzip -j -o "$FIRMWARE_ZIP" -d "$PKG_DIR" "*/hyp.mbn" "*/rpm.mbn" "*/sbl1.mbn" "*/tz.mbn" "*/aboot.bin" "*/fsc.bin" "*/fsg.bin" "*/modemst1.bin" "*/modemst2.bin" "*/sbc_1.0_8016.bin" "*/cdt.bin" 2>/dev/null || true
+            echo "========== 编译firmware产物目录 =========="
+            ls -lh "$PKG_DIR"
             # 如果 zip 内文件名是 cdt.bin 而不是 sbc_1.0_8016.bin，则重命名
             if [ -f "$PKG_DIR/cdt.bin" ] && [ ! -f "$PKG_DIR/sbc_1.0_8016.bin" ]; then
               mv "$PKG_DIR/cdt.bin" "$PKG_DIR/sbc_1.0_8016.bin"
