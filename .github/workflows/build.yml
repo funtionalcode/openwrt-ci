@@ -342,16 +342,16 @@ jobs:
           echo Please make sure the device is in fastboot mode
           pause
           "%~dp0fastboot.exe" flash partition gpt_both0.bin
-          "%~dp0fastboot.exe" flash hyp hyp.mbn
-          "%~dp0fastboot.exe" flash rpm rpm.mbn
-          "%~dp0fastboot.exe" flash sbl1 sbl1.mbn
-          "%~dp0fastboot.exe" flash tz tz.mbn
-          "%~dp0fastboot.exe" flash fsc fsc.bin
-          "%~dp0fastboot.exe" flash fsg fsg.bin
-          "%~dp0fastboot.exe" flash modemst1 modemst1.bin
-          "%~dp0fastboot.exe" flash modemst2 modemst2.bin
-          "%~dp0fastboot.exe" flash aboot aboot.bin
-          "%~dp0fastboot.exe" flash cdt sbc_1.0_8016.bin
+          if exist hyp.mbn ("%~dp0fastboot.exe" flash hyp hyp.mbn) else (echo SKIP hyp.mbn - not found)
+          if exist rpm.mbn ("%~dp0fastboot.exe" flash rpm rpm.mbn) else (echo SKIP rpm.mbn - not found)
+          if exist sbl1.mbn ("%~dp0fastboot.exe" flash sbl1 sbl1.mbn) else (echo SKIP sbl1.mbn - not found)
+          if exist tz.mbn ("%~dp0fastboot.exe" flash tz tz.mbn) else (echo SKIP tz.mbn - not found)
+          if exist fsc.bin ("%~dp0fastboot.exe" flash fsc fsc.bin) else (echo SKIP fsc.bin - not found)
+          if exist fsg.bin ("%~dp0fastboot.exe" flash fsg fsg.bin) else (echo SKIP fsg.bin - not found)
+          if exist modemst1.bin ("%~dp0fastboot.exe" flash modemst1 modemst1.bin) else (echo SKIP modemst1.bin - not found)
+          if exist modemst2.bin ("%~dp0fastboot.exe" flash modemst2 modemst2.bin) else (echo SKIP modemst2.bin - not found)
+          if exist aboot.bin ("%~dp0fastboot.exe" flash aboot aboot.bin) else (echo SKIP aboot.bin - not found)
+          if exist sbc_1.0_8016.bin ("%~dp0fastboot.exe" flash cdt sbc_1.0_8016.bin) else (echo SKIP sbc_1.0_8016.bin - not found)
           "%~dp0fastboot.exe" erase boot
           "%~dp0fastboot.exe" erase rootfs
           "%~dp0fastboot.exe" reboot
@@ -371,16 +371,16 @@ jobs:
           echo "OpenWrt UFI103_CT Flash Tool"
           echo "请确保设备已进入 fastboot 模式"
           fastboot flash partition gpt_both0.bin
-          fastboot flash hyp hyp.mbn
-          fastboot flash rpm rpm.mbn
-          fastboot flash sbl1 sbl1.mbn
-          fastboot flash tz tz.mbn
-          fastboot flash fsc fsc.bin
-          fastboot flash fsg fsg.bin
-          fastboot flash modemst1 modemst1.bin
-          fastboot flash modemst2 modemst2.bin
-          fastboot flash aboot aboot.bin
-          fastboot flash cdt sbc_1.0_8016.bin
+          [ -f hyp.mbn ] && fastboot flash hyp hyp.mbn || echo "SKIP hyp.mbn"
+          [ -f rpm.mbn ] && fastboot flash rpm rpm.mbn || echo "SKIP rpm.mbn"
+          [ -f sbl1.mbn ] && fastboot flash sbl1 sbl1.mbn || echo "SKIP sbl1.mbn"
+          [ -f tz.mbn ] && fastboot flash tz tz.mbn || echo "SKIP tz.mbn"
+          [ -f fsc.bin ] && fastboot flash fsc fsc.bin || echo "SKIP fsc.bin"
+          [ -f fsg.bin ] && fastboot flash fsg fsg.bin || echo "SKIP fsg.bin"
+          [ -f modemst1.bin ] && fastboot flash modemst1 modemst1.bin || echo "SKIP modemst1.bin"
+          [ -f modemst2.bin ] && fastboot flash modemst2 modemst2.bin || echo "SKIP modemst2.bin"
+          [ -f aboot.bin ] && fastboot flash aboot aboot.bin || echo "SKIP aboot.bin"
+          [ -f sbc_1.0_8016.bin ] && fastboot flash cdt sbc_1.0_8016.bin || echo "SKIP sbc_1.0_8016.bin"
           fastboot erase boot
           fastboot erase rootfs
           fastboot reboot
