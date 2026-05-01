@@ -39,7 +39,7 @@ info "Device connected"
 echo ""
 
 # ---- Check required files ----
-for f in boot.img rootfs.img; do
+for f in gpt_both0.bin boot.img rootfs.img; do
     if [ ! -f "$SCRIPT_DIR/$f" ]; then
         error "Required file missing: $f"
     fi
@@ -54,10 +54,13 @@ read -r _
 echo ""
 
 # ---- Flash ----
-echo "[1/2] Flashing boot.img..."
+echo "[1/3] Flashing partition table..."
+$FB flash partition "$SCRIPT_DIR/gpt_both0.bin" || error "partition flash failed"
+
+echo "[2/3] Flashing boot.img..."
 $FB flash boot "$SCRIPT_DIR/boot.img" || error "boot flash failed"
 
-echo "[2/2] Flashing rootfs.img..."
+echo "[3/3] Flashing rootfs.img..."
 $FB -S 200m flash rootfs "$SCRIPT_DIR/rootfs.img" || error "rootfs flash failed"
 
 echo ""

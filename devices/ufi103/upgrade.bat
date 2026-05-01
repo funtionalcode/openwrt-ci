@@ -37,8 +37,9 @@ echo.
 
 :: ---- Check required files ----
 set MISSING=0
-if not exist "%~dp0boot.img"   ( echo [MISSING] boot.img   & set MISSING=1 )
-if not exist "%~dp0rootfs.img" ( echo [MISSING] rootfs.img & set MISSING=1 )
+if not exist "%~dp0gpt_both0.bin" ( echo [MISSING] gpt_both0.bin & set MISSING=1 )
+if not exist "%~dp0boot.img"      ( echo [MISSING] boot.img      & set MISSING=1 )
+if not exist "%~dp0rootfs.img"    ( echo [MISSING] rootfs.img    & set MISSING=1 )
 if !MISSING!==1 (
     echo.
     echo [ERROR] Required files missing. Aborting.
@@ -55,11 +56,15 @@ pause
 echo.
 
 :: ---- Flash ----
-echo [1/2] Flashing boot.img...
+echo [1/3] Flashing partition table...
+"!FB!" flash partition "%~dp0gpt_both0.bin"
+if !errorlevel! neq 0 ( echo [FAIL] partition & pause & exit /b 1 )
+
+echo [2/3] Flashing boot.img...
 "!FB!" flash boot "%~dp0boot.img"
 if !errorlevel! neq 0 ( echo [FAIL] boot & pause & exit /b 1 )
 
-echo [2/2] Flashing rootfs.img...
+echo [3/3] Flashing rootfs.img...
 "!FB!" -S 200m flash rootfs "%~dp0rootfs.img"
 if !errorlevel! neq 0 ( echo [FAIL] rootfs & pause & exit /b 1 )
 
