@@ -77,6 +77,8 @@ jobs:
     needs: resolve-version
     runs-on: ubuntu-22.04
     timeout-minutes: 360
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
 
     steps:
       # ========================================
@@ -111,7 +113,7 @@ jobs:
             python3-pyelftools libelf-dev libfdt-dev \
             android-sdk-libsparse-utils mkbootimg gcc-arm-none-eabi \
             device-tree-compiler help2man asciidoc intltool bc \
-            perl perl-modules e2fsprogs xz-utils zstd zip
+            perl perl-modules e2fsprogs xz-utils zstd zip ccache
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
 
@@ -255,14 +257,25 @@ jobs:
       - name: 编译固件
         run: |
           cd openwrt
+          mkdir -p .ccache
           if [ "${{ github.event.inputs.build_debug }}" = "true" ]; then
             make -j$(nproc) V=s
           else
             make -j$(nproc) || make -j1 || make -j1 V=s
           fi
 
+      - name: 收集 ccache 到工作区
+        if: success()
+        run: |
+          # 若系统默认 ~/.ccache 有数据而工作区目录为空，则复制过来
+          if [ -d ~/.ccache ] && [ -z "$(ls -A openwrt/.ccache 2>/dev/null)" ]; then
+            cp -r ~/.ccache/* openwrt/.ccache/ 2>/dev/null || true
+          fi
+          # 确保目录始终存在，避免 save 步骤报错
+          mkdir -p openwrt/.ccache
+
       - name: 保存 ccache 缓存
-        if: github.ref == 'refs/heads/main'
+        if: success()
         uses: actions/cache/save@v4
         with:
           path: openwrt/.ccache
