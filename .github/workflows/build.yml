@@ -185,6 +185,9 @@ jobs:
           rm -rf package/feeds/luci/luci-app-frps 2>/dev/null || true
           rm -rf package/openwrt-frp/frps 2>/dev/null || true
 
+          # mihomo-alpha 与 mihomo-meta 互相依赖，我们只需要 mihomo-meta
+          rm -rf package/feeds/nikki/mihomo-alpha 2>/dev/null || true
+
       # ========================================
       # 5. 配置
       # ========================================
