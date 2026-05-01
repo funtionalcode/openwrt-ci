@@ -113,7 +113,7 @@ jobs:
             python3-pyelftools libelf-dev libfdt-dev \
             android-sdk-libsparse-utils mkbootimg gcc-arm-none-eabi \
             device-tree-compiler help2man asciidoc intltool bc \
-            perl perl-modules e2fsprogs xz-utils zstd zip
+            perl perl-modules e2fsprogs xz-utils zstd zip ccache
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
 
