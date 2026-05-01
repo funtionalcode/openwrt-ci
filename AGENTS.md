@@ -1,5 +1,43 @@
 # OpenWrt CI 项目规范
 
+## Git 工作流规范
+
+### 提交和 PR 流程
+
+每次提交前必须遵循以下流程:
+
+1. **创建分支**: 从 main 分支创建功能分支
+   ```bash
+   git checkout main
+   git pull origin main
+   git checkout -b <feature-branch>
+   ```
+
+2. **Rebase main**: 确保分支与 main 同步
+   ```bash
+   git rebase main
+   ```
+
+3. **提交变更**: 使用 conventional commits 格式
+   ```bash
+   git add <files>
+   git commit -m "<type>: <description>"
+   ```
+
+4. **推送并创建 PR**: 推送分支后，通过以下链接创建 PR:
+   ```
+   https://github.com/<owner>/<repo>/compare/main...<branch-name>
+   ```
+
+5. **PR 描述模板**:
+   ```markdown
+   ## Summary
+   <1-3 bullet points>
+
+   ## Test plan
+   <Checklist of verification steps>
+   ```
+
 ## 项目结构
 
 ```
