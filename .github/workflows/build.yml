@@ -379,12 +379,6 @@ jobs:
           echo "========== 最终固件包内容 =========="
           ls -lh "$PKG_DIR/"
 
-          # 打包为 zip
-          cd $GITHUB_WORKSPACE
-          zip -r "${PKG_NAME}.zip" "$PKG_NAME"
-          echo "========== ZIP 文件 =========="
-          ls -lh "${PKG_NAME}.zip"
-
       # ========================================
       # 10. 上传产物
       # ========================================
@@ -393,7 +387,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}
-          path: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}.zip
+          path: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}/
           retention-days: 7
 
       - name: 构建摘要
@@ -403,6 +397,3 @@ jobs:
           echo "OpenWrt: ${{ needs.resolve-version.outputs.openwrt_version }}"
           echo "固件已上传到 Artifacts"
           echo "请到 Actions 页面下载"
-          echo ""
-          echo "固件包:"
-          ls -lh OpenWrt_UFI103_CT_*.zip
