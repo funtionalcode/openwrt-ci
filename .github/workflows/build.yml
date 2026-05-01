@@ -309,11 +309,11 @@ jobs:
           # 复制 manifest
           cp "$BIN_DIR"/*.manifest "$PKG_DIR/" 2>/dev/null || true
 
-          # 生成 Windows 刷机脚本
+          # 生成 Windows 刷机脚本（使用 CRLF 换行符）
           cat > "$PKG_DIR/flash.bat" << 'BAT_EOF'
           @echo off
           echo OpenWrt UFI103_CT Flash Tool
-          echo 请确保设备已进入 fastboot 模式
+          echo Please make sure the device is in fastboot mode
           pause
           fastboot flash partition gpt_both0.bin
           fastboot flash hyp hyp.mbn
@@ -329,14 +329,15 @@ jobs:
           fastboot erase boot
           fastboot erase rootfs
           fastboot reboot
-          echo 请等待设备重启进入 fastboot...
+          echo Please wait for device to re-enter fastboot...
           pause
           fastboot flash boot boot.img
           fastboot -S 200m flash rootfs rootfs.img
           fastboot reboot
-          echo 刷机完成!
+          echo Flash completed!
           pause
           BAT_EOF
+          sed -i 's/$/\r/' "$PKG_DIR/flash.bat"
 
           # 生成 Linux/Mac 刷机脚本
           cat > "$PKG_DIR/flash.sh" << 'SH_EOF'
