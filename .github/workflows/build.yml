@@ -1,13 +1,13 @@
-# UFI103_CT OpenWrt 云编译
+# OpenWrt 多设备云编译
 # 触发方式：PR 合并到 main 后自动触发，或手动触发
 #
 # 构建流程：
 # 1. 从官方 OpenWrt 克隆源码
 # 2. 从 hkfuertes/msm8916-openwrt 注入 MSM8916 设备支持
 # 3. 添加第三方 Feeds（Nikki、Argon、FRP 等）
-# 4. 应用自定义 .config 编译固件
+# 4. 根据 devices/<device>/seed 应用配置编译固件
 
-name: Build OpenWrt for UFI103_CT
+name: Build OpenWrt
 
 on:
   # PR 合并到 main 后触发
@@ -15,7 +15,7 @@ on:
     branches:
       - main
     paths:
-      - 'config/**'
+      - 'devices/**'
 
   # 手动触发
   workflow_dispatch:
@@ -28,8 +28,9 @@ on:
         description: '目标设备'
         required: false
         type: choice
-        default: uz801
+        default: ufi103
         options:
+          - ufi103
           - uz801
           - uf02
       build_debug:
@@ -73,7 +74,7 @@ jobs:
   # 编译固件
   # ==========================================
   build:
-    name: 编译固件 (${{ github.event.inputs.device || 'uz801' }})
+    name: 编译固件 (${{ github.event.inputs.device || 'ufi103' }})
     needs: resolve-version
     runs-on: ubuntu-22.04
     timeout-minutes: 360
@@ -86,6 +87,27 @@ jobs:
       # ========================================
       - name: 检出本仓库
         uses: actions/checkout@v4
+
+      - name: 设置设备参数
+        id: device-config
+        run: |
+          DEVICE="${{ github.event.inputs.device || 'ufi103' }}"
+          echo "device=$DEVICE" >> $GITHUB_OUTPUT
+          # 设备显示名映射
+          case "$DEVICE" in
+            ufi103) DISPLAY="UFI103_CT" ;;
+            uz801)  DISPLAY="UZ801" ;;
+            uf02)   DISPLAY="UF02" ;;
+            *)      DISPLAY="$DEVICE" ;;
+          esac
+          echo "display=$DISPLAY" >> $GITHUB_OUTPUT
+          # 验证设备配置目录存在
+          if [ ! -f "devices/$DEVICE/seed" ]; then
+            echo "ERROR: devices/$DEVICE/seed not found"
+            exit 1
+          fi
+          echo "设备: $DISPLAY ($DEVICE)"
+          echo "配置: devices/$DEVICE/seed"
 
       - name: 释放磁盘空间
         uses: jlumbroso/free-disk-space@main
@@ -133,15 +155,10 @@ jobs:
       # ========================================
       - name: 注入 MSM8916 设备支持
         run: |
-          # 克隆 MSM8916 补丁仓库
           git clone --depth 1 $MSM_REPO msm8916-patches
-
-          # 应用补丁脚本
           cd msm8916-patches
           chmod +x apply_patches.sh
           ./apply_patches.sh ../openwrt
-
-          # 移动设备树和包文件到 OpenWrt 源码
           cd ..
           if [ -d msm8916-patches/msm89xx ]; then
             mv msm8916-patches/msm89xx openwrt/target/linux/msm89xx
@@ -150,190 +167,103 @@ jobs:
             mv msm8916-patches/packages openwrt/package/msm8916
           fi
 
-          echo "========== MSM8916 补丁已注入 =========="
+          echo "========== MSM8916 设备树 =========="
+          ls openwrt/target/linux/msm89xx/ 2>/dev/null || echo "未找到 msm89xx 目录"
 
       # ========================================
-      # 4. 添加第三方包
+      # 4. 添加第三方 Feeds & 包
       # ========================================
-      - name: 添加第三方 Feeds 和包
+      - name: 添加第三方 Feeds
         run: |
           cd openwrt
 
-          # Nikki - Mihomo(Clash Meta) 代理客户端（作为 Feed 添加）
-          echo "src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki.git;main" >> feeds.conf.default
+          # Nikki (标准 feed)
+          echo "src-git nikki https://github.com/nikkinikki-org/OpenWrt-nikki" >> feeds.conf.default
 
-          # Argon 主题 - 独立包，直接克隆到 package 目录
-          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
-
-          # FRP 客户端 + frpc 二进制 - 独立包，直接克隆到 package 目录
-          git clone --depth 1 https://github.com/kuoruan/luci-app-frpc.git package/luci-app-frpc
-          git clone --depth 1 https://github.com/kuoruan/openwrt-frp.git package/openwrt-frp
-
-          echo "========== Feeds 配置 =========="
-          cat feeds.conf.default
-          echo "========== 额外包 =========="
-          ls -d package/luci-theme-argon package/luci-app-frpc package/openwrt-frp
-
-      - name: 更新并安装 Feeds
-        run: |
-          cd openwrt
-          rm -rf tmp
+          # 更新 feeds
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-          # 移除依赖缺失和循环依赖的包，消除 Makefile 警告
-          for pkg in luci-app-mjpg-streamer onionshare-cli; do
-            [ -d "package/feeds/packages/$pkg" ] && rm -rf "package/feeds/packages/$pkg"
-            [ -d "package/feeds/luci/$pkg" ] && rm -rf "package/feeds/luci/$pkg"
-          done
-
-          # frps 与 luci-app-frps 存在循环依赖，我们只需要 frpc
-          rm -rf package/feeds/luci/luci-app-frps 2>/dev/null || true
-          rm -rf package/openwrt-frp/frps 2>/dev/null || true
-
-          # mihomo-alpha 与 mihomo-meta 互相依赖，我们只需要 mihomo-meta
-          rm -rf package/feeds/nikki/mihomo-alpha 2>/dev/null || true
-
-      # ========================================
-      # 5. 配置
-      # ========================================
-      - name: 生成 .config
+      - name: 添加第三方包 (git clone)
         run: |
+          cd openwrt/package
+
+          # Argon 主题
+          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon
+
+          # FRP 客户端
+          git clone --depth 1 https://github.com/kuoruan/luci-app-frpc
+          git clone --depth 1 https://github.com/kuoruan/openwrt-frp
+
+      # ========================================
+      # 5. 应用设备配置
+      # ========================================
+      - name: 应用设备配置
+        run: |
+          DEVICE="${{ steps.device-config.outputs.device }}"
           cd openwrt
 
           # 复制 seed 配置
-          cp $GITHUB_WORKSPACE/config/ufi103.seed .config
+          cp "../devices/$DEVICE/seed" .config
 
           # 展开为完整配置
           make defconfig
 
-          # 注入自定义默认配置（WiFi 默认开启 + USB 共享网络支持）
-          cp -r $GITHUB_WORKSPACE/files .
-
-          # 检查 seed 中的包是否被 defconfig 降级（说明依赖缺失）
-          MISSING=""
-          while IFS= read -r line; do
-            pkg=$(echo "$line" | sed 's/CONFIG_PACKAGE_\(.*\)=y/\1/')
-            if grep -q "^# CONFIG_PACKAGE_${pkg} is not set" .config 2>/dev/null; then
-              MISSING="$MISSING $pkg"
-            fi
-          done < <(grep '^CONFIG_PACKAGE.*=y' "$GITHUB_WORKSPACE/config/ufi103.seed")
-          if [ -n "$MISSING" ]; then
-            echo "⚠️ 以下 seed 包被 defconfig 降级（可能缺少依赖）："
-            echo "$MISSING"
-          else
-            echo "✅ 所有 seed 包均正常选中"
+          # 复制设备自定义文件
+          if [ -d "../devices/$DEVICE/files" ]; then
+            cp -r "../devices/$DEVICE/files/"* files/ 2>/dev/null || true
           fi
 
-          # 显示最终配置摘要
           echo "========== 配置摘要 =========="
-          grep "^CONFIG_PACKAGE" .config | grep "=y" | head -60
-          echo "========== 总包数 =========="
-          grep "^CONFIG_PACKAGE" .config | grep "=y" | wc -l
+          grep "CONFIG_PACKAGE_" .config | grep "=y" | wc -l
+          echo "packages enabled"
 
       # ========================================
-      # 6. 恢复 ccache 缓存
-      # ========================================
-      - name: 恢复 ccache 缓存
-        uses: actions/cache/restore@v4
-        with:
-          path: openwrt/.ccache
-          key: openwrt-ccache-${{ needs.resolve-version.outputs.openwrt_version }}
-          restore-keys: |
-            openwrt-ccache-
-
-      # ========================================
-      # 7. 下载源码包
-      # ========================================
-      - name: 下载源码包
-        run: |
-          cd openwrt
-          make download -j8
-          find dl -size -1024c -exec rm -f {} \; || true
-
-      # ========================================
-      # 8. 编译
+      # 6. 编译
       # ========================================
       - name: 编译固件
         run: |
           cd openwrt
-          mkdir -p .ccache
+
+          echo "========== 开始编译 =========="
           if [ "${{ github.event.inputs.build_debug }}" = "true" ]; then
             make -j$(nproc) V=s
           else
-            make -j$(nproc) || make -j1 || make -j1 V=s
+            make -j$(nproc) V=s 2>&1 | tee /tmp/build.log || (
+              echo "========== 编译失败，最后 200 行日志 =========="
+              tail -200 /tmp/build.log
+              exit 1
+            )
           fi
 
-      - name: 收集 ccache 到工作区
+      # ========================================
+      # 7. 收集产物
+      # ========================================
+      - name: 收集编译产物
         if: success()
         run: |
-          # 若系统默认 ~/.ccache 有数据而工作区目录为空，则复制过来
-          if [ -d ~/.ccache ] && [ -z "$(ls -A openwrt/.ccache 2>/dev/null)" ]; then
-            cp -r ~/.ccache/* openwrt/.ccache/ 2>/dev/null || true
-          fi
-          # 确保目录始终存在，避免 save 步骤报错
-          mkdir -p openwrt/.ccache
-
-      - name: 保存 ccache 缓存
-        if: success()
-        uses: actions/cache/save@v4
-        with:
-          path: openwrt/.ccache
-          key: openwrt-ccache-${{ needs.resolve-version.outputs.openwrt_version }}-${{ github.run_id }}
-
-      - name: 编译失败时上传日志
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            openwrt/logs/
-            openwrt/tmp/
-          if-no-files-found: ignore
-
-      # ========================================
-      # 9. 整理产物（参考 OpenWrt_UFI103S.zip 格式）
-      # ========================================
-      - name: 整理固件文件
-        if: success()
-        run: |
-          DEVICE="${{ github.event.inputs.device || 'uz801' }}"
+          DEVICE="${{ steps.device-config.outputs.device }}"
+          DISPLAY="${{ steps.device-config.outputs.display }}"
           VERSION="${{ needs.resolve-version.outputs.openwrt_version }}"
-          PKG_NAME="OpenWrt_UFI103_CT_${VERSION}"
-          PKG_DIR="$GITHUB_WORKSPACE/$PKG_NAME"
+
+          BIN_DIR="openwrt/bin/targets/msm89xx/msm8916"
+          if [ ! -d "$BIN_DIR" ]; then
+            echo "ERROR: 编译产物目录不存在: $BIN_DIR"
+            find openwrt/bin -name "*.bin" -o -name "*.img" 2>/dev/null | head -20
+            exit 1
+          fi
+
+          PKG_DIR="OpenWrt_${DISPLAY}_${VERSION}"
           mkdir -p "$PKG_DIR"
 
-          # 从编译产物中提取文件
-          BIN_DIR=$(ls -d openwrt/bin/targets/*/*/)
+          # 复制核心镜像
+          cp "$BIN_DIR"/gpt_both0.bin "$PKG_DIR/" 2>/dev/null || true
+          cp "$BIN_DIR"/*boot.img "$PKG_DIR/" 2>/dev/null || true
+          cp "$BIN_DIR"/*rootfs*.img "$PKG_DIR/" 2>/dev/null || true
 
-          echo "========== 编译产物目录 =========="
-          ls -lh "$BIN_DIR"
-
-          # 复制固件核心文件
-          cp "$BIN_DIR"/*-squashfs-gpt_both0.bin "$PKG_DIR/gpt_both0.bin" 2>/dev/null || true
-          cp "$BIN_DIR"/*-squashfs-boot.img "$PKG_DIR/boot.img" 2>/dev/null || true
-          cp "$BIN_DIR"/*-squashfs-system.img "$PKG_DIR/rootfs.img" 2>/dev/null || true
-
-          # 复制刷机脚本
-          cp "$BIN_DIR"/*-flash.sh "$PKG_DIR/flash.sh" 2>/dev/null || true
-
-          # 复制 GPT 和引导文件（如有）
-          cp "$BIN_DIR"/*-squashfs-gpt_main0.bin "$PKG_DIR/gpt_main0.bin" 2>/dev/null || true
-          cp "$BIN_DIR"/*-squashfs-gpt_backup0.bin "$PKG_DIR/gpt_backup0.bin" 2>/dev/null || true
-          cp "$BIN_DIR"/*-squashfs-lk2nd.img "$PKG_DIR/lk2nd.img" 2>/dev/null || true
-
-          # 解压 firmware.zip 提取基带/引导文件（通常包含 hyp/rpm/sbl1/tz/aboot/fsc/fsg/modemst/cdt 等）
-          FIRMWARE_ZIP=$(ls "$BIN_DIR"/*-firmware.zip 2>/dev/null | head -1)
-          if [ -n "$FIRMWARE_ZIP" ]; then
-            echo "========== 解压 firmware.zip 提取基带文件 =========="
-            unzip -j -o "$FIRMWARE_ZIP" -d "$PKG_DIR" "*/hyp.mbn" "*/rpm.mbn" "*/sbl1.mbn" "*/tz.mbn" "*/aboot.bin" "*/fsc.bin" "*/fsg.bin" "*/modemst1.bin" "*/modemst2.bin" "*/sbc_1.0_8016.bin" "*/cdt.bin" 2>/dev/null || true
-            echo "========== 编译firmware产物目录 =========="
-            ls -lh "$PKG_DIR"
-            # 如果 zip 内文件名是 cdt.bin 而不是 sbc_1.0_8016.bin，则重命名
-            if [ -f "$PKG_DIR/cdt.bin" ] && [ ! -f "$PKG_DIR/sbc_1.0_8016.bin" ]; then
-              mv "$PKG_DIR/cdt.bin" "$PKG_DIR/sbc_1.0_8016.bin"
-            fi
-          fi
+          # 重命名为标准文件名
+          [ -f "$PKG_DIR"/*-boot.img ] && mv "$PKG_DIR"/*-boot.img "$PKG_DIR/boot.img"
+          [ -f "$PKG_DIR"/*-rootfs.img ] && mv "$PKG_DIR"/*-rootfs.img "$PKG_DIR/rootfs.img"
 
           # 复制 manifest
           cp "$BIN_DIR"/*.manifest "$PKG_DIR/" 2>/dev/null || true
@@ -348,92 +278,58 @@ jobs:
           cp /tmp/platform-tools/AdbWinUsbApi.dll "$PKG_DIR/AdbWinUsbApi.dll"
           rm -rf /tmp/platform-tools /tmp/platform-tools.zip
 
-          # 生成 Windows 刷机脚本（使用 CRLF 换行符）
-          cat > "$PKG_DIR/flash.bat" << 'BAT_EOF'
-          @echo off
-          echo OpenWrt UFI103_CT Flash Tool
-          echo Please make sure the device is in fastboot mode
-          pause
-          "%~dp0fastboot.exe" flash partition gpt_both0.bin
-          if exist hyp.mbn ("%~dp0fastboot.exe" flash hyp hyp.mbn) else (echo SKIP hyp.mbn - not found)
-          if exist rpm.mbn ("%~dp0fastboot.exe" flash rpm rpm.mbn) else (echo SKIP rpm.mbn - not found)
-          if exist sbl1.mbn ("%~dp0fastboot.exe" flash sbl1 sbl1.mbn) else (echo SKIP sbl1.mbn - not found)
-          if exist tz.mbn ("%~dp0fastboot.exe" flash tz tz.mbn) else (echo SKIP tz.mbn - not found)
-          if exist fsc.bin ("%~dp0fastboot.exe" flash fsc fsc.bin) else (echo SKIP fsc.bin - not found)
-          if exist fsg.bin ("%~dp0fastboot.exe" flash fsg fsg.bin) else (echo SKIP fsg.bin - not found)
-          if exist modemst1.bin ("%~dp0fastboot.exe" flash modemst1 modemst1.bin) else (echo SKIP modemst1.bin - not found)
-          if exist modemst2.bin ("%~dp0fastboot.exe" flash modemst2 modemst2.bin) else (echo SKIP modemst2.bin - not found)
-          if exist aboot.bin ("%~dp0fastboot.exe" flash aboot aboot.bin) else (echo SKIP aboot.bin - not found)
-          if exist sbc_1.0_8016.bin ("%~dp0fastboot.exe" flash cdt sbc_1.0_8016.bin) else (echo SKIP sbc_1.0_8016.bin - not found)
-          "%~dp0fastboot.exe" erase boot
-          "%~dp0fastboot.exe" erase rootfs
-          "%~dp0fastboot.exe" reboot
-          echo Please wait for device to re-enter fastboot...
-          pause
-          "%~dp0fastboot.exe" flash boot boot.img
-          "%~dp0fastboot.exe" -S 200m flash rootfs rootfs.img
-          "%~dp0fastboot.exe" reboot
-          echo Flash completed!
-          pause
-          BAT_EOF
-          sed -i 's/$/\r/' "$PKG_DIR/flash.bat"
+          # 复制设备原厂基带文件到 firmware/ 子目录
+          echo "========== 复制原厂基带文件 =========="
+          mkdir -p "$PKG_DIR/firmware"
+          cp "$GITHUB_WORKSPACE/devices/$DEVICE/firmware/"* "$PKG_DIR/firmware/" 2>/dev/null || echo "No firmware files to copy"
 
-          # 生成 Linux/Mac 刷机脚本
-          cat > "$PKG_DIR/flash.sh" << 'SH_EOF'
-          #!/bin/sh
-          echo "OpenWrt UFI103_CT Flash Tool"
-          echo "请确保设备已进入 fastboot 模式"
-          fastboot flash partition gpt_both0.bin
-          [ -f hyp.mbn ] && fastboot flash hyp hyp.mbn || echo "SKIP hyp.mbn"
-          [ -f rpm.mbn ] && fastboot flash rpm rpm.mbn || echo "SKIP rpm.mbn"
-          [ -f sbl1.mbn ] && fastboot flash sbl1 sbl1.mbn || echo "SKIP sbl1.mbn"
-          [ -f tz.mbn ] && fastboot flash tz tz.mbn || echo "SKIP tz.mbn"
-          [ -f fsc.bin ] && fastboot flash fsc fsc.bin || echo "SKIP fsc.bin"
-          [ -f fsg.bin ] && fastboot flash fsg fsg.bin || echo "SKIP fsg.bin"
-          [ -f modemst1.bin ] && fastboot flash modemst1 modemst1.bin || echo "SKIP modemst1.bin"
-          [ -f modemst2.bin ] && fastboot flash modemst2 modemst2.bin || echo "SKIP modemst2.bin"
-          [ -f aboot.bin ] && fastboot flash aboot aboot.bin || echo "SKIP aboot.bin"
-          [ -f sbc_1.0_8016.bin ] && fastboot flash cdt sbc_1.0_8016.bin || echo "SKIP sbc_1.0_8016.bin"
-          fastboot erase boot
-          fastboot erase rootfs
-          fastboot reboot
-          sleep 5
-          fastboot flash boot boot.img
-          fastboot -S 200m flash rootfs rootfs.img
-          fastboot reboot
-          echo "刷机完成!"
-          SH_EOF
-          chmod +x "$PKG_DIR/flash.sh"
+          # 使用设备目录中的刷机脚本
+          if [ -f "devices/$DEVICE/flash.bat" ]; then
+            cp "devices/$DEVICE/flash.bat" "$PKG_DIR/flash.bat"
+            perl -pi -e 's/\n/\r\n/' "$PKG_DIR/flash.bat"
+          fi
+          if [ -f "devices/$DEVICE/flash.sh" ]; then
+            cp "devices/$DEVICE/flash.sh" "$PKG_DIR/flash.sh"
+            chmod +x "$PKG_DIR/flash.sh"
+          fi
+          if [ -f "devices/$DEVICE/upgrade.bat" ]; then
+            cp "devices/$DEVICE/upgrade.bat" "$PKG_DIR/upgrade.bat"
+            perl -pi -e 's/\n/\r\n/' "$PKG_DIR/upgrade.bat"
+          fi
+          if [ -f "devices/$DEVICE/upgrade.sh" ]; then
+            cp "devices/$DEVICE/upgrade.sh" "$PKG_DIR/upgrade.sh"
+            chmod +x "$PKG_DIR/upgrade.sh"
+          fi
 
           # 生成构建信息
           cat > "$PKG_DIR/build_info.txt" << INFO_EOF
-          设备: UFI103_CT
+          设备: $DISPLAY
           构建时间: $(date '+%Y-%m-%d %H:%M:%S')
           OpenWrt 版本: $VERSION
           OpenWrt 源码: ${{ env.OPENWRT_COMMIT }}
           MSM8916 补丁: $MSM_REPO
-          目标 Profile: $DEVICE
-          配置文件: ufi103.seed
+          配置文件: devices/$DEVICE/seed
           INFO_EOF
 
           echo "========== 最终固件包内容 =========="
           ls -lh "$PKG_DIR/"
 
       # ========================================
-      # 10. 上传产物
+      # 8. 上传产物
       # ========================================
       - name: 上传固件
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}
-          path: OpenWrt_UFI103_CT_${{ needs.resolve-version.outputs.openwrt_version }}/
+          name: OpenWrt_${{ steps.device-config.outputs.display }}_${{ needs.resolve-version.outputs.openwrt_version }}
+          path: OpenWrt_${{ steps.device-config.outputs.display }}_${{ needs.resolve-version.outputs.openwrt_version }}/
           retention-days: 7
 
       - name: 构建摘要
         if: success()
         run: |
           echo "========== 构建完成 =========="
+          echo "设备: ${{ steps.device-config.outputs.display }}"
           echo "OpenWrt: ${{ needs.resolve-version.outputs.openwrt_version }}"
           echo "固件已上传到 Artifacts"
           echo "请到 Actions 页面下载"
